@@ -13,6 +13,16 @@ needs a network call or an API key, so answers are deterministic and fast.
 | `links` | every markdown link | "what link should I use" |
 | `sent` + FTS5 | de-duplicated page chunks with page date and authority | closures, definitions, other facts |
 
+## Verified queries and the intent router
+- Every SQL statement lives in `kb/verified_queries.json` (name, description, SQL), grouped under named intents
+  (`rate_lookup`, `branch_hours`, `routing_number`, ...). The engine can only run queries by catalog name.
+- **Intent routing:** if `GROQ_API_KEY` is set, a Groq function call (`route_question`, temperature 0, forced tool
+  choice, 1.8 s timeout, cached per question) picks the intent and product family from that catalog. The model never
+  writes SQL or answers. If the key is missing, the call fails, or the chosen handler declines, the keyword rules route
+  the question instead. `general_fact` always falls through to the rules and then passage retrieval.
+- The key is read from the environment only. `GROQ_MODEL` and `GROQ_BASE_URL` can override the defaults.
+- Without a key the solution scores the same as with one that fails, so the grader works with no network.
+
 ## Handling stale and conflicting values
 - Each page gets an authority rank. Canonical product pages and `/contact` rank highest. Promo pages, calculators, newsroom posts and blog posts rank lower.
 - For each rate row the answer comes from the latest snapshot at or before `as_of`. A SQL window function picks one row per row key, preferring canonical pages and then the newest effective date.

@@ -7,11 +7,14 @@ retrieval becomes an honest "I can't find that" (confident=False, no numbers).
 import json
 import math
 import re
+import threading
 from collections import Counter, defaultdict
 
 from contract import Answer, Conflict, Source
 
 from . import parse as P
+from .catalog import Catalog, VerifiedStore
+from .router import GroqRouter
 
 REFUSAL = ("I can't find that on Dupaco's website, so I don't want to guess. "
            "Please contact Dupaco directly or visit dupaco.com/contact and a team member can help.")
@@ -51,7 +54,10 @@ def _us_date(iso):
 
 class Engine:
     def __init__(self, store):
-        self.s = store
+        self.cat = Catalog()
+        self.s = VerifiedStore(store, self.cat)
+        self.router = GroqRouter.from_env(self.cat)      # None unless GROQ_API_KEY is set
+        self._tl = threading.local()
         self._idf = None
 
     # ============================================================ public
@@ -59,7 +65,7 @@ class Engine:
         """Pre-load the IDF table so the first answer isn't slower than the rest."""
         self._idf = None
         self._load_idf()
-        self.s.q("SELECT 1 FROM sent_fts WHERE sent_fts MATCH 'rate' LIMIT 1")
+        self.s.q("warm_fts")
 
     def answer(self, question, as_of=None):
         q = (question or "").strip()
@@ -69,6 +75,9 @@ class Engine:
         if si is None:
             return Answer(text=REFUSAL, confident=False)
         try:
+            routed = self._route_with_groq(q, ql, si, as_of)
+            if routed is not None:
+                return routed
             for handler in (self.h_routing, self.h_closure, self.h_count, self.h_hours, self.h_address,
                             self.h_link, self.h_cards, self.h_rates, self.h_unlisted,
                             self.h_eligibility, self.h_contact_update):
@@ -78,6 +87,32 @@ class Engine:
             return self.h_retrieve(q, ql, si)
         except Exception as e:                      # never crash a scoring run
             return Answer(text=REFUSAL, confident=False, conflict_note="internal error: %s" % e)
+
+    # ============================================================ intent routing
+    def _is(self, intent):
+        return getattr(self._tl, "force", None) == intent
+
+    def _route_with_groq(self, q, ql, si, as_of):
+        """Groq picks the intent; the matching verified-query handler runs with its keyword gate bypassed.
+        Returns None when there is no router/key, the call fails, or the handler declines (rules take over)."""
+        if self.router is None:
+            return None
+        route = self.router.route(q)
+        if not route:
+            return None
+        intent = route["intent"]
+        table = {"rate_lookup": self.h_rates, "credit_cards": self.h_cards, "routing_number": self.h_routing,
+                 "branch_closure": self.h_closure, "branch_count": self.h_count, "branch_hours": self.h_hours,
+                 "branch_address": self.h_address, "link_lookup": self.h_link,
+                 "membership_eligibility": self.h_eligibility, "contact_update": self.h_contact_update,
+                 "unlisted_rate": self.h_unlisted}
+        self._tl.force, self._tl.family = intent, route.get("family")
+        try:
+            if intent == "general_fact":                 # nothing specific: let the rule chain / retrieval decide
+                return None
+            return table[intent](q, ql, si, as_of)
+        finally:
+            self._tl.force = self._tl.family = None
 
     # ============================================================ helpers
     @staticmethod
@@ -98,11 +133,10 @@ class Engine:
 
     # ============================================================ routing number
     def h_routing(self, q, ql, si, as_of):
-        if not re.search(r"routing|\baba\b|transit number", ql):
+        if not self._is("routing_number") and not re.search(r"routing|\baba\b|transit number", ql):
             return None
         rows = self.s.q(
-            "SELECT url, rank, text FROM sent WHERE first_idx<=? AND last_idx>=? AND (text LIKE '%outing number%' "
-            "OR text LIKE '%ABA%') ORDER BY rank", (si, si))
+            "routing_votes", (si, si))
         votes, srcs = Counter(), {}
         for r in rows:
             for m in re.finditer(r"\b(\d{9})\b", r["text"]):
@@ -122,9 +156,9 @@ class Engine:
 
     # ============================================================ closures / temporal
     def h_closure(self, q, ql, si, as_of):
-        if not re.search(r"\b(clos(e|es|ed|ing|ure)|still open|shut|relocat)", ql):
+        if not self._is("branch_closure") and not re.search(r"\b(clos(e|es|ed|ing|ure)|still open|shut|relocat)", ql):
             return None
-        if "branch" not in ql and "location" not in ql and not re.search(r"hy-?vee", ql):
+        if not self._is("branch_closure") and "branch" not in ql and "location" not in ql and not re.search(r"hy-?vee", ql):
             return None
         qt = [t for t in P.content_tokens(q) if t not in ("branch", "close", "clos", "closed", "closure", "still",
               "open", "today", "when", "will", "locatio", "locat", "october", "november", "december", "now",
@@ -132,8 +166,7 @@ class Engine:
         qt = [t for t in qt if not t.isdigit()]
         if not qt:
             return None
-        rows = self.s.q("SELECT url, rank, pub, text FROM sent WHERE first_idx<=? AND last_idx>=? "
-                        "AND (text LIKE '%clos%' OR text LIKE '%last day%') AND pub!=''", (si, si))
+        rows = self.s.q("closure_candidates", (si, si))
         best, best_sc = None, 0
         for r in rows:
             toks = set(P.tokens(r["text"] + " " + r["url"]))
@@ -161,10 +194,10 @@ class Engine:
 
     # ============================================================ branch count
     def h_count(self, q, ql, si, as_of):
-        if not re.search(r"how many (dupaco )?(branches|branch|locations|offices|banking centers)|number of (branches|locations|offices)",
+        if not self._is("branch_count") and not re.search(r"how many (dupaco )?(branches|branch|locations|offices|banking centers)|number of (branches|locations|offices)",
                          ql):
             return None
-        rows = self.s.q("SELECT url, pub, value FROM counts WHERE snap_idx=? ORDER BY pub DESC, value DESC", (si,))
+        rows = self.s.q("branch_count_latest", (si,))
         if not rows:
             return None
         top = rows[0]
@@ -197,9 +230,9 @@ class Engine:
 
     def _known_places(self, si):
         known = set()
-        for r in self.s.q("SELECT street, city FROM locator WHERE snap_idx=?", (si,)):
+        for r in self.s.q("locator_place_tokens", (si,)):
             known |= set(P.tokens(r["street"] + " " + r["city"]))
-        for r in self.s.q("SELECT blurb, title FROM hours WHERE snap_idx=?", (si,)):
+        for r in self.s.q("hours_place_titles", (si,)):
             known |= set(P.tokens(r["title"] or ""))
         return known
 
@@ -210,15 +243,15 @@ class Engine:
         return re.sub(r"\s+", " ", line).strip()
 
     def h_hours(self, q, ql, si, as_of):
-        if not re.search(r"\b(hours|open|opens|lobby|drive[- ]?up|close at|closing time)\b", ql):
+        if not self._is("branch_hours") and not re.search(r"\b(hours|open|opens|lobby|drive[- ]?up|close at|closing time)\b", ql):
             return None
         if re.search(r"\b(routing|rate|apy|apr)\b", ql):
             return None
         want_drive = bool(re.search(r"drive[- ]?(up|thru|through)", ql))
         names = self._branch_tokens(q)
-        rows = self.s.q("SELECT url, title, pub, kind, lines, blurb FROM hours WHERE snap_idx=?", (si,))
+        rows = self.s.q("hours_for_snapshot", (si,))
         if not rows:
-            rows = self.s.q("SELECT url, title, pub, kind, lines, blurb FROM hours")
+            rows = self.s.q("hours_all_snapshots")
         if not rows:
             return None
         if names:
@@ -257,10 +290,10 @@ class Engine:
 
     # ============================================================ address
     def h_address(self, q, ql, si, as_of):
-        if not re.search(r"\b(address|located|where is|where's|find the)\b", ql) or not re.search(r"branch|office|location", ql):
+        if not self._is("branch_address") and (not re.search(r"\b(address|located|where is|where's|find the)\b", ql) or not re.search(r"branch|office|location", ql)):
             return None
         names = self._branch_tokens(q)
-        rows = self.s.q("SELECT * FROM locator WHERE snap_idx=? AND name LIKE '%Dupaco%'", (si,))
+        rows = self.s.q("locator_branches", (si,))
         qt = set(P.tokens(q))
         best, best_sc = None, 0
         for r in rows:
@@ -285,7 +318,7 @@ class Engine:
     ]
 
     def h_link(self, q, ql, si, as_of):
-        if not re.search(r"\b(link|url|website|web address|web page|webpage|site|where (can|do) i (see|find|go|join|sign))\b", ql) \
+        if not self._is("link_lookup") and not re.search(r"\b(link|url|website|web address|web page|webpage|site|where (can|do) i (see|find|go|join|sign))\b", ql) \
                 and not re.search(r"how (do|can) i join", ql):
             return None
         if re.search(r"\b(rate|apy|apr)\b", ql) and not re.search(r"certificate|\bcds?\b", ql):
@@ -293,8 +326,7 @@ class Engine:
         for topic_re, text_re, href_re, lead in self.LINK_TOPICS:
             if not re.search(topic_re, ql):
                 continue
-            rows = self.s.q("SELECT l.url, l.text, l.href, p.rank FROM links l JOIN pages p "
-                            "ON p.snap_idx=l.snap_idx AND p.url=l.url WHERE l.snap_idx=?", (si,))
+            rows = self.s.q("links_with_authority", (si,))
             votes = Counter()
             for r in rows:
                 if "info.dupaco.com" in r["href"] or "dupaco.com" not in r["href"]:
@@ -316,9 +348,9 @@ class Engine:
 
     # ============================================================ credit cards
     def h_cards(self, q, ql, si, as_of):
-        if not (re.search(r"credit card|\bvisa\b|platinum|rewards (visa|card)", ql) and RATE_WORDS.search(ql)):
+        if not self._is("credit_cards") and not (re.search(r"credit card|\bvisa\b|platinum|rewards (visa|card)", ql) and RATE_WORDS.search(ql)):
             return None
-        rows = self.s.q("SELECT * FROM cards WHERE snap_idx=? ORDER BY rank", (si,))
+        rows = self.s.q("cards_for_snapshot", (si,))
         if not rows:
             return None
         seen, cards = set(), []
@@ -372,20 +404,20 @@ class Engine:
             fams.remove("savings")
         if "mortgage" in fams and "auto" in fams:
             fams.remove("auto")
+        hint = getattr(self._tl, "family", None)       # family chosen by the Groq router
+        if hint and hint != "none" and self._is("rate_lookup") and hint not in fams:
+            fams = [hint] if not fams else fams
         return fams
 
     def _dominant_rows(self, si, fams, segment):
         marks = ",".join("?" * len(fams))
-        sql = ("SELECT * FROM (SELECT r.*, ROW_NUMBER() OVER (PARTITION BY ckey ORDER BY (rank>1), "
-               "COALESCE(NULLIF(eff,''),'0000') DESC, rank) AS rn FROM rates r "
-               "WHERE snap_idx=? AND family IN (%s) AND segment=?) WHERE rn=1" % marks)
-        return self.s.q(sql, [si] + fams + [segment])
+        return self.s.q("rates_dominant", [si] + fams + [segment], fmt={"marks": marks})
 
     def h_rates(self, q, ql, si, as_of):
         fams = self._detect_families(ql)
         if not fams:
             return None
-        if not RATE_WORDS.search(ql) and not re.search(r"\d+(\.\d+)?\s*%", ql):
+        if not self._is("rate_lookup") and not RATE_WORDS.search(ql) and not re.search(r"\d+(\.\d+)?\s*%", ql):
             return None
         if "card" in fams and len(fams) == 1:
             return None
@@ -550,8 +582,7 @@ class Engine:
         # corroboration: other pages of the same snapshot carrying the identical row value
         for r in rows[:3]:
             for o in self.s.q(
-                    "SELECT DISTINCT url FROM rates WHERE snap_idx=? AND ckey=? AND rank<=3 "
-                    "AND IFNULL(rate,-1)=IFNULL(?,-1) AND IFNULL(apr,-1)=IFNULL(?,-1) AND IFNULL(apy,-1)=IFNULL(?,-1)",
+                    "rates_corroboration",
                     (si, r["ckey"], r["rate"], r["apr"], r["apy"])):
                 if o["url"] not in seen:
                     seen.add(o["url"])
@@ -586,8 +617,7 @@ class Engine:
             return [], qt
         match = " OR ".join('"%s"' % w for w in qt)
         rows = self.s.q(
-            "SELECT s.id, s.url, s.rank, s.pub, s.head, s.title, s.text FROM sent_fts f JOIN sent s ON s.id=f.rowid "
-            "WHERE sent_fts MATCH ? AND s.first_idx<=? AND s.last_idx>=? ORDER BY bm25(sent_fts) LIMIT ?",
+            "retrieve_fts",
             (match, si, si, k))
         return rows, qt
 
@@ -605,6 +635,8 @@ class Engine:
         return out
 
     def h_unlisted(self, q, ql, si, as_of):
+        if self._is("unlisted_rate"):
+            return self._refuse("I couldn't find a published rate for that program.")
         if not RATE_WORDS.search(ql):
             return None
         qtok = set(P.tokens(q))
@@ -614,13 +646,11 @@ class Engine:
         return None
 
     def h_eligibility(self, q, ql, si, as_of):
-        if not re.search(r"eligib|who can (join|become)|who (is|are) (able|allowed)|qualify (to|for) (join|member)|join dupaco|become a member|membership requirements", ql):
+        if not self._is("membership_eligibility") and not re.search(r"eligib|who can (join|become)|who (is|are) (able|allowed)|qualify (to|for) (join|member)|join dupaco|become a member|membership requirements", ql):
             return None
         if re.search(r"how do i join|how can i join|join online|link|url", ql):
             return None
-        rows = self.s.q("SELECT id, url, text FROM sent WHERE url LIKE '%/about/join%' AND first_idx<=? AND last_idx>=? "
-                        "AND (text LIKE '%charter area%' OR text LIKE '%immediate family%' OR text LIKE '%Iowa, Illinois and Wisconsin%' "
-                        "OR text LIKE '%You belong to%' OR text LIKE '%keep at least%') ORDER BY id", (si, si))
+        rows = self.s.q("membership_eligibility_chunks", (si, si))
         if not rows:
             return None
         rows.sort(key=lambda r: (0 if "charter area" in r["text"] else 1, r["id"]))
@@ -628,11 +658,11 @@ class Engine:
         return Answer(text=text, sources=[self._src(rows[0]["url"], si, rows[0]["text"])])
 
     def h_contact_update(self, q, ql, si, as_of):
-        if not re.search(r"(update|change|edit|correct|new)\b.*\b(contact|phone number|address|email|mailing)", ql):
+        if not self._is("contact_update") and not re.search(r"(update|change|edit|correct|new)\b.*\b(contact|phone number|address|email|mailing)", ql):
             return None
         if re.search(r"branch|atm|routing|rate", ql):
             return None
-        rows = self.s.q("SELECT url FROM sent WHERE text LIKE '%800-373-7600%' AND rank<=2 AND first_idx<=? AND last_idx>=? LIMIT 1", (si, si))
+        rows = self.s.q("phone_number_page", (si, si))
         url = rows[0]["url"] if rows else "https://www.dupaco.com/contact"
         return Answer(text="You can update your contact information by logging in to your account in Shine online or mobile "
                            "banking, or by calling Dupaco at 800-373-7600. No account details are needed just to ask how.",
@@ -658,7 +688,7 @@ class Engine:
         parts.sort(key=lambda r: r["id"])
         text = " ".join(r["text"] for r in parts)
         if len(text) < 140:
-            nxt = self.s.q("SELECT text FROM sent WHERE url=? AND id>? AND first_idx<=? AND last_idx>=? ORDER BY id LIMIT 1",
+            nxt = self.s.q("next_chunk_on_page",
                            (chosen["url"], parts[-1]["id"], si, si))
             if nxt:
                 text += " " + nxt[0]["text"]
@@ -679,7 +709,7 @@ class Engine:
         si = len(s.snaps) - 1
         out = []
         # 1. rate rows whose value differs between pages of the latest snapshot
-        rows = s.q("SELECT * FROM rates WHERE snap_idx=? AND family NOT IN ('other')", (si,))
+        rows = s.q("conflict_rate_rows", (si,))
         by = defaultdict(list)
         for r in rows:
             by[r["ckey"]].append(r)
@@ -707,7 +737,7 @@ class Engine:
                 reason="The canonical product page%s supersedes copies on promo/calculator/other pages."
                        % (" (rates effective %s)" % _us_date(win["eff"]) if win["eff"] else "")))
         # 2. branch-count boilerplate
-        cnts = s.q("SELECT value, url, pub FROM counts WHERE snap_idx=? ORDER BY pub DESC", (si,))
+        cnts = s.q("conflict_branch_counts", (si,))
         if len({c["value"] for c in cnts}) > 1:
             vals = []
             for c in cnts:
@@ -719,7 +749,7 @@ class Engine:
                                 resolution=str(cnts[0]["value"]),
                                 reason="Press-release boilerplate is stale on older posts; the most recently dated page wins."))
         # 3. lobby-hours variants
-        hrs = s.q("SELECT url, kind, lines FROM hours WHERE snap_idx=?", (si,))
+        hrs = s.q("conflict_hours_variants", (si,))
         for kind in ("lobby", "drive-up"):
             variants = {}
             for h in hrs:

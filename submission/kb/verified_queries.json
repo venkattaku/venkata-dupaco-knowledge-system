@@ -1,0 +1,217 @@
+{
+ "version": 1,
+ "notes": "All SQL run by the engine lives here. Intents are what the router (Groq function-calling, or the rule fallback) chooses between.",
+ "intents": [
+  {
+   "name": "rate_lookup",
+   "description": "Rates/APR/APY/dividend for loans, mortgages, certificates, savings, checking; tiers, terms, model years, as-of dates, highest/lowest, yes/no on a rate.",
+   "examples": [
+    "What is the APR on a 36-month personal loan?",
+    "Do any savings tiers pay 0.35% APY?",
+    "What was the 10-month jumbo certificate rate as of May 2026?"
+   ],
+   "queries": [
+    "rates_dominant",
+    "rates_corroboration"
+   ]
+  },
+  {
+   "name": "credit_cards",
+   "description": "Credit card APRs and which cards Dupaco offers.",
+   "examples": [
+    "What credit cards do you offer and what are their APRs?"
+   ],
+   "queries": [
+    "cards_for_snapshot"
+   ]
+  },
+  {
+   "name": "routing_number",
+   "description": "Routing / ABA number.",
+   "examples": [
+    "What is Dupaco's routing number?"
+   ],
+   "queries": [
+    "routing_votes"
+   ]
+  },
+  {
+   "name": "branch_closure",
+   "description": "Whether/when a branch closes or has closed.",
+   "examples": [
+    "When does the Hy-Vee branch close?",
+    "Is the Asbury branch still open?"
+   ],
+   "queries": [
+    "closure_candidates"
+   ]
+  },
+  {
+   "name": "branch_count",
+   "description": "How many branches/locations.",
+   "examples": [
+    "How many branches does Dupaco have?"
+   ],
+   "queries": [
+    "branch_count_latest"
+   ]
+  },
+  {
+   "name": "branch_hours",
+   "description": "Lobby or drive-up hours, general or for a named branch.",
+   "examples": [
+    "What are the drive-up hours?",
+    "Lobby hours for the Platteville branch?"
+   ],
+   "queries": [
+    "hours_for_snapshot",
+    "hours_all_snapshots",
+    "hours_place_titles",
+    "locator_place_tokens"
+   ]
+  },
+  {
+   "name": "branch_address",
+   "description": "Street address of a named branch.",
+   "examples": [
+    "What is the address of the Galena Branch?"
+   ],
+   "queries": [
+    "locator_branches"
+   ]
+  },
+  {
+   "name": "link_lookup",
+   "description": "The URL to use for a task (certificate rates, branch locator, join online).",
+   "examples": [
+    "What link should I use to see CD rates?",
+    "How do I join Dupaco online?"
+   ],
+   "queries": [
+    "links_with_authority"
+   ]
+  },
+  {
+   "name": "membership_eligibility",
+   "description": "Who can become a member.",
+   "examples": [
+    "Who is eligible to become a Dupaco member?"
+   ],
+   "queries": [
+    "membership_eligibility_chunks"
+   ]
+  },
+  {
+   "name": "contact_update",
+   "description": "How to update contact info.",
+   "examples": [
+    "How can I update my contact information?"
+   ],
+   "queries": [
+    "phone_number_page"
+   ]
+  },
+  {
+   "name": "unlisted_rate",
+   "description": "Rate for a program the site does not price (ARM, construction, HELOC...). Must refuse.",
+   "examples": [
+    "What rate do you charge on a construction loan?"
+   ],
+   "queries": []
+  },
+  {
+   "name": "general_fact",
+   "description": "Any other factual question about Dupaco (programs, recognition, wallets, students...). Answered by passage retrieval.",
+   "examples": [
+    "What is the Home$tart program?",
+    "Can I add my card to Apple Pay?"
+   ],
+   "queries": [
+    "retrieve_fts",
+    "next_chunk_on_page"
+   ]
+  }
+ ],
+ "queries": {
+  "rates_dominant": {
+   "description": "One row per row-key: canonical page first, then newest effective date. {marks} = placeholders for the family list.",
+   "sql": "SELECT * FROM (SELECT r.*, ROW_NUMBER() OVER (PARTITION BY ckey ORDER BY (rank>1), COALESCE(NULLIF(eff,''),'0000') DESC, rank) AS rn FROM rates r WHERE snap_idx=? AND family IN ({marks}) AND segment=?) WHERE rn=1"
+  },
+  "rates_corroboration": {
+   "description": "Other pages in the snapshot carrying the identical rate row value (extra sources).",
+   "sql": "SELECT DISTINCT url FROM rates WHERE snap_idx=? AND ckey=? AND rank<=3 AND IFNULL(rate,-1)=IFNULL(?,-1) AND IFNULL(apr,-1)=IFNULL(?,-1) AND IFNULL(apy,-1)=IFNULL(?,-1)"
+  },
+  "cards_for_snapshot": {
+   "description": "Credit-card APR facts in a snapshot, best authority first.",
+   "sql": "SELECT * FROM cards WHERE snap_idx=? ORDER BY rank"
+  },
+  "routing_votes": {
+   "description": "Chunks mentioning the routing/ABA number, ranked by page authority.",
+   "sql": "SELECT url, rank, text FROM sent WHERE first_idx<=? AND last_idx>=? AND (text LIKE '%outing number%' OR text LIKE '%ABA%') ORDER BY rank"
+  },
+  "branch_count_latest": {
+   "description": "Branch-count boilerplate values with page dates (latest dated page wins).",
+   "sql": "SELECT url, pub, value FROM counts WHERE snap_idx=? ORDER BY pub DESC, value DESC"
+  },
+  "closure_candidates": {
+   "description": "Dated chunks that mention a closing / last day of service.",
+   "sql": "SELECT url, rank, pub, text FROM sent WHERE first_idx<=? AND last_idx>=? AND (text LIKE '%clos%' OR text LIKE '%last day%') AND pub!=''"
+  },
+  "hours_for_snapshot": {
+   "description": "Lobby/drive-up hour blocks in a snapshot.",
+   "sql": "SELECT url, title, pub, kind, lines, blurb FROM hours WHERE snap_idx=?"
+  },
+  "hours_all_snapshots": {
+   "description": "Hour blocks across all snapshots (fallback when the snapshot has none).",
+   "sql": "SELECT url, title, pub, kind, lines, blurb FROM hours"
+  },
+  "hours_place_titles": {
+   "description": "Titles of pages carrying hours blocks (known place names).",
+   "sql": "SELECT blurb, title FROM hours WHERE snap_idx=?"
+  },
+  "locator_branches": {
+   "description": "Dupaco branch entries (street, city, state, zip, services) from /contact.",
+   "sql": "SELECT * FROM locator WHERE snap_idx=? AND name LIKE '%Dupaco%'"
+  },
+  "locator_place_tokens": {
+   "description": "Street/city of every locator entry (known branch names).",
+   "sql": "SELECT street, city FROM locator WHERE snap_idx=?"
+  },
+  "links_with_authority": {
+   "description": "Every link in a snapshot with the linking page authority rank.",
+   "sql": "SELECT l.url, l.text, l.href, p.rank FROM links l JOIN pages p ON p.snap_idx=l.snap_idx AND p.url=l.url WHERE l.snap_idx=?"
+  },
+  "membership_eligibility_chunks": {
+   "description": "Join-page chunks that describe who is eligible to become a member.",
+   "sql": "SELECT id, url, text FROM sent WHERE url LIKE '%/about/join%' AND first_idx<=? AND last_idx>=? AND (text LIKE '%charter area%' OR text LIKE '%immediate family%' OR text LIKE '%Iowa, Illinois and Wisconsin%' OR text LIKE '%You belong to%' OR text LIKE '%keep at least%') ORDER BY id"
+  },
+  "phone_number_page": {
+   "description": "Canonical page carrying the member-service phone number.",
+   "sql": "SELECT url FROM sent WHERE text LIKE '%800-373-7600%' AND rank<=2 AND first_idx<=? AND last_idx>=? LIMIT 1"
+  },
+  "retrieve_fts": {
+   "description": "BM25 passage retrieval (fallback) restricted to chunks visible in the chosen snapshot.",
+   "sql": "SELECT s.id, s.url, s.rank, s.pub, s.head, s.title, s.text FROM sent_fts f JOIN sent s ON s.id=f.rowid WHERE sent_fts MATCH ? AND s.first_idx<=? AND s.last_idx>=? ORDER BY bm25(sent_fts) LIMIT ?"
+  },
+  "next_chunk_on_page": {
+   "description": "The chunk that follows a short hit on the same page.",
+   "sql": "SELECT text FROM sent WHERE url=? AND id>? AND first_idx<=? AND last_idx>=? ORDER BY id LIMIT 1"
+  },
+  "warm_fts": {
+   "description": "Warm-up probe so the first answer is not slower than later ones.",
+   "sql": "SELECT 1 FROM sent_fts WHERE sent_fts MATCH 'rate' LIMIT 1"
+  },
+  "conflict_rate_rows": {
+   "description": "All rate rows in the snapshot, for conflict detection across pages.",
+   "sql": "SELECT * FROM rates WHERE snap_idx=? AND family NOT IN ('other')"
+  },
+  "conflict_branch_counts": {
+   "description": "All branch-count values in the snapshot, for conflict reporting.",
+   "sql": "SELECT value, url, pub FROM counts WHERE snap_idx=? ORDER BY pub DESC"
+  },
+  "conflict_hours_variants": {
+   "description": "Hour blocks for detecting branch-specific schedule variants.",
+   "sql": "SELECT url, kind, lines FROM hours WHERE snap_idx=?"
+  }
+ }
+}
