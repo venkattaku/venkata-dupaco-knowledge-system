@@ -8,6 +8,7 @@ Consistency and speed are multiplied by accuracy, as in the official scorer.
 | Iter | Date | Commit | Change | Final | Accuracy | Consistency | Speed (p95 s) | Trap hits | Errors |
 |---:|---|---|---|---:|---:|---:|---:|---:|---:|
 | 0 | 2026-11-05 | `dc0266f` | Starter (naive paragraph overlap), unchanged | **0.093** | 0.093 | 1.000 | 0.31 | 0 | 0 |
+| 1 | 2026-11-05 | `c58ed96+wip` | SQLite ingest + verified queries (rule router, templated answers) | **0.969** | 0.969 | 1.000 | 1.14 | 0 | 0 |
 <!-- ROWS -->
 
 <!-- SECTIONS -->
@@ -70,3 +71,27 @@ Questions below 1.0:
 | dup-104 | branch_info | 0.00 | missed 12:30, noon |
 | dup-145 | should_refuse | 0.00 | behaviour / source |
 | dup-147 | should_refuse | 0.00 | behaviour / source |
+
+## Iteration 1: SQLite ingest + verified queries (rule router, templated answers)
+
+- Commit: `c58ed96+wip`  |  Date: 2026-11-05  |  Ingest: 10.6s  |  p50/p95/max latency: 0.0/1.14/1.19s
+- Questions at full score: 39/40
+- No LLM, stdlib only. Rate tables parsed per snapshot; canonical-page + newest-effective-date dominance in SQL; hours/address/count/closure/link handlers; BM25 fallback with refusal. Confirmed identical 0.969 on user machine (Py3.10). dup-005 has no must_include so is unscorable without the judge.
+
+| Category | n | Score |
+|---|---:|---:|
+| branch_info | 6 | 1.00 |
+| conflict_resolution | 3 | 1.00 |
+| current_value | 3 | 1.00 |
+| entity_attribution | 4 | 1.00 |
+| list_completeness | 4 | 0.75 |
+| should_refuse | 3 | 1.00 |
+| stale_trap | 7 | 1.00 |
+| temporal_as_of | 4 | 1.00 |
+| tier_disambiguation | 6 | 1.00 |
+
+Questions below 1.0:
+
+| ID | Category | Score | Why |
+|---|---|---:|---|
+| dup-005 | list_completeness | 0.00 | behaviour / source |
