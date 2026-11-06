@@ -149,6 +149,66 @@
    ],
    "sql": "SELECT s.id, s.url, s.rank, s.pub, s.head, substr(s.text,1,500) AS text FROM sent_fts f JOIN sent s ON s.id=f.rowid\n  WHERE sent_fts MATCH :match AND s.first_idx<=:si AND s.last_idx>=:si ORDER BY bm25(sent_fts)+0.4*s.rank LIMIT 15",
    "outline_sql": "SELECT MIN(id) AS id, url, MIN(rank) AS rank, MAX(pub) AS pub, head, substr(group_concat(text, ' '), 1, 300) AS text FROM sent WHERE url=:u AND rank<=3 AND head<>'' AND first_idx<=:si AND last_idx>=:si GROUP BY head ORDER BY MIN(id) LIMIT 14"
+  },
+  "rate_lookup": {
+   "description": "Search rates by CRITERIA: which products/tiers pay a given rate (e.g. 'does any tier pay 0.35%'), the highest or lowest rate, rates at or above/below a value, or the tier for a dollar amount. Returns one summary row per product (min and max rate, tier where the max applies, how many tiers match) plus the matching tier rows. Name `product` when the question is about the tiers of one product (savings tiers -> Share Savings); omit it to search the whole family. Use `rates` instead for a plain 'what is the rate on X' lookup.",
+   "params": {
+    "family": {
+     "type": "string",
+     "enum": [
+      "mortgage",
+      "home_improvement",
+      "auto",
+      "personal_loan",
+      "cert",
+      "checking",
+      "savings"
+     ],
+     "description": "Product family."
+    },
+    "segment": {
+     "type": "string",
+     "enum": [
+      "personal",
+      "business"
+     ],
+     "description": "Default personal."
+    },
+    "product": {
+     "type": "string",
+     "description": "Product name as in the label, e.g. 'Share Savings', 'Health Savings Account', 'Money Market'. Omit to search every product of the family. For a question about 'savings tiers' / 'the savings account' use the family's main product (Share Savings)."
+    },
+    "apy_eq": {
+     "type": "number",
+     "description": "Rate the question asks about, e.g. 0.35. Matches tiers whose APY (or rate) equals it."
+    },
+    "apy_min": {
+     "type": "number",
+     "description": "Only tiers at or above this rate."
+    },
+    "apy_max": {
+     "type": "number",
+     "description": "Only tiers at or below this rate."
+    },
+    "amount": {
+     "type": "number",
+     "description": "Dollar balance/loan size: only tiers that cover it."
+    },
+    "as_of": {
+     "type": "string",
+     "description": "YYYY-MM-DD, only if the question asks about a past date (e.g. 'as of May 2026' -> 2026-05-31). Omit otherwise."
+    }
+   },
+   "required": [
+    "family"
+   ],
+   "sql": "SELECT * FROM (\n  SELECT r.url, r.family, r.label, r.eff, r.rate, r.apr, r.apy, r.lo, r.hi, r.rank,\n         (SELECT group_concat(DISTINCT x.url) FROM rates x WHERE x.snap_idx=r.snap_idx AND x.ckey=r.ckey AND x.rank<=3\n            AND x.rate IS r.rate AND x.apr IS r.apr AND x.apy IS r.apy) AS also,\n         ROW_NUMBER() OVER (PARTITION BY r.ckey ORDER BY (r.rank>1), COALESCE(NULLIF(r.eff,''),'0000') DESC, r.rank) AS rn\n  FROM rates r WHERE r.snap_idx=:si AND r.family=:family AND r.segment=:segment)\n WHERE rn=1 ORDER BY label LIMIT 300",
+   "defaults": {
+    "segment": "personal"
+   },
+   "headline": {
+    "savings": "Share Savings"
+   }
   }
  }
 }

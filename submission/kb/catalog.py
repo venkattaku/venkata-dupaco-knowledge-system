@@ -45,6 +45,8 @@ class Catalog:
                     r["headline"] = "main product of this category"
             rows.sort(key=lambda r: "headline" not in r)         # stable: main-product rows first, rest keep their order
             return rows
+        if name == "rate_lookup":     # criteria search over rate tiers: product, rate value/range, dollar amount
+            return self._rate_lookup(t, store.q(sql, p), args)
         if name == "branch_hours":
             return self._merge_hours(store.q(sql, p))
         if name == "search_text":     # passage search: keywords (FTS5) fused with vector similarity
@@ -69,6 +71,70 @@ class Catalog:
                         rows.append(r)
             return rows[:36]
         return store.q(sql, p)
+
+    @staticmethod
+    def _rate_lookup(t, tiers, args):
+        """Apply the criteria to every tier of the family and summarise per product.
+
+        Output rows: one `summary` row per product (lowest and highest rate, the tier where the highest applies,
+        how many tiers match) followed by the matching tier rows. When a criterion matches nothing the summary
+        still shows the product's real range, so the answer can say "no, it tops out at X"."""
+        def product(r):
+            return r["label"].split(" | ")[0]
+
+        def rate(r):
+            for k in ("apy", "apr", "rate"):
+                if r.get(k) is not None:
+                    return r[k]
+
+        want = [w for w in P.tokens(str(args.get("product") or "")) if w]
+        picked = [r for r in tiers if all(w in P.tokens(product(r)) for w in want)] if want else tiers
+        picked = picked or tiers                       # unknown product name: fall back to the whole family
+        eq, lo, hi, amt = (args.get(k) for k in ("apy_eq", "apy_min", "apy_max", "amount"))
+
+        def matches(r):
+            v = rate(r)
+            return (v is not None
+                    and (eq is None or abs(v - eq) < 0.005) and (lo is None or v >= lo) and (hi is None or v <= hi)
+                    and (amt is None or r["lo"] is None or r["lo"] <= amt <= r["hi"]))
+
+        by_product = {}
+        for r in picked:
+            by_product.setdefault(product(r), []).append(r)
+        filtered = any(a is not None for a in (eq, lo, hi, amt))
+        out = []
+        for name, rs in by_product.items():
+            rs = [r for r in rs if rate(r) is not None] or rs
+            top = max(rs, key=lambda r: rate(r) or 0)
+            bottom = min(rs, key=lambda r: rate(r) or 0)
+            hit = [r for r in rs if matches(r)]
+            s = {"url": top["url"], "also": top["also"], "rank": top["rank"], "family": top["family"], "summary": name,
+                 "tiers": len(rs), "lowest_rate": rate(bottom), "highest_rate": rate(top),
+                 "highest_rate_tier": top["label"].split(" | ")[-1], "eff": top["eff"]}
+            main = t.get("headline", {}).get(top["family"])
+            if main and name.startswith(main):
+                s["headline"] = "main product of this category"
+            if filtered:
+                s["tiers_matching"] = len(hit)
+                s["result"] = ("%d of %d tiers meet the criterion; highest rate %s%% at %s"
+                               % (len(hit), len(rs), rate(top), s["highest_rate_tier"]))
+            out.append((s, hit if filtered else rs if args.get("product") else []))
+        if filtered and not args.get("product"):
+            # keep only the products that match, plus the category's main product (even with no match, so that "savings
+            # tiers" shows its real range); other products are labelled as different products
+            keep = [(s, h) for s, h in out if "headline" in s or s["tiers_matching"]]
+            out = keep or out
+            if any("headline" in s for s, _ in out):
+                for s, _ in out:
+                    if "headline" not in s:
+                        s["other_product"] = "different product, not the category's main one"
+        out.sort(key=lambda x: ("headline" not in x[0], -x[0]["highest_rate"] if x[0]["highest_rate"] is not None else 0))
+        rows = []
+        for s, tier_rows in out:
+            rows.append(s)
+            for r in tier_rows:
+                rows.append({k: r[k] for k in ("url", "also", "rank", "family", "label", "eff", "rate", "apr", "apy") if r.get(k) not in (None, "")})
+        return rows[:40]
 
     @staticmethod
     def _fuse(store, t, fts_rows, qvec, si):
