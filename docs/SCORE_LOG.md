@@ -16,6 +16,7 @@ Consistency and speed are multiplied by accuracy, as in the official scorer.
 | 6 | 2026-11-06 | `5eacb9f+wip` | Dense vectors (numpy) fused with FTS5 | **0.840** | 0.881 | 1.000 | 6.75 | 1 | 0 |
 | 7 | 2026-11-06 | `5eacb9f+wip` | Wider keyword recall, two-query router, ordinal rule | **0.871** | 0.900 | 1.000 | 5.34 | 0 | 0 |
 | 8 | 2026-11-06 | `d72ec04+wip` | Section outline for the best pages, merged-hours source URLs, tier-ordered sources | **0.874** | 0.933 | 1.000 | 8.50 | 0 | 0 |
+| 9 | 2026-11-06 | `f085bf3+wip` | Row numbers kept out of answer text (default-product rule tried, no effect) | **0.863** | 0.933 | 1.000 | 9.66 | 0 | 0 |
 <!-- ROWS -->
 
 <!-- SECTIONS -->
@@ -282,6 +283,32 @@ Questions below 1.0:
 - Commit: `d72ec04+wip`  |  Date: 2026-11-06  |  Ingest: 4.4s  |  p50/p95/max latency: 5.11/8.5/11.99s
 - Questions at full score: 37/40
 - local run 20 (DeepInfra)
+
+| Category | n | Score |
+|---|---:|---:|
+| branch_info | 6 | 0.97 |
+| conflict_resolution | 3 | 0.67 |
+| current_value | 3 | 1.00 |
+| entity_attribution | 4 | 1.00 |
+| list_completeness | 4 | 0.75 |
+| should_refuse | 3 | 1.00 |
+| stale_trap | 7 | 1.00 |
+| temporal_as_of | 4 | 1.00 |
+| tier_disambiguation | 6 | 1.00 |
+
+Questions below 1.0:
+
+| ID | Category | Score | Why |
+|---|---|---:|---|
+| dup-005 | list_completeness | 0.00 | behaviour / source |
+| dup-049 | conflict_resolution | 0.00 | missed 0.20 |
+| dup-066 | branch_info | 0.85 | behaviour / source |
+
+## Iteration 9: Row numbers kept out of answer text (default-product rule tried, no effect)
+
+- Commit: `f085bf3+wip`  |  Date: 2026-11-06  |  Ingest: 4.3s  |  p50/p95/max latency: 3.9/9.66/12.79s
+- Questions at full score: 37/40
+- local run 21 (DeepInfra)
 
 | Category | n | Score |
 |---|---:|---:|
