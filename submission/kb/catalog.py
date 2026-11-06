@@ -40,7 +40,13 @@ class Catalog:
             for r in rows:
                 for c in ("hay", "lo", "hi", "yr_lo", "yr_hi", "rn"):
                     r.pop(c, None)
+                main = t.get("headline", {}).get(r["family"])      # the category's main product (e.g. savings -> Share Savings)
+                if main and r["label"].startswith(main):
+                    r["headline"] = "main product of this category"
+            rows.sort(key=lambda r: "headline" not in r)         # stable: main-product rows first, rest keep their order
             return rows
+        if name == "branch_hours":
+            return self._merge_hours(store.q(sql, p))
         if name == "search_text":     # passage search: keywords (FTS5) fused with vector similarity
             words = [w for w in " ".join(P.tokens(str(args.get("query", "")))).split() if w not in P.STOP and w not in ("dupaco", "credit", "union")]
             rows = []
@@ -90,3 +96,24 @@ class Catalog:
                 score[r["id"]] = score.get(r["id"], 0.0) + 1.0 / (60 + n)
                 byid.setdefault(r["id"], r)
         return [byid[i] for i in sorted(score, key=lambda i: -score[i])][:20]
+
+    @staticmethod
+    def _merge_hours(rows):
+        """One row per kind (lobby / drive-up) that lists every distinct schedule with its dates and branch/event,
+        newest first. A single list is much harder for the LLM to under-report than several separate rows."""
+        out, by_kind = [], {}
+        for r in rows:
+            if r["kind"] == "official-text":
+                out.append(r)
+            else:
+                by_kind.setdefault(r["kind"], []).append(r)
+        for kind, rs in by_kind.items():
+            rs.sort(key=lambda r: r["pub"], reverse=True)
+            lines = []
+            for i, r in enumerate(rs, 1):
+                span = r["pub"] if r["first_pub"] == r["pub"] else "%s to %s" % (r["first_pub"], r["pub"])
+                lines.append("Schedule %d (%s; %s): %s" % (i, span, r["title"], "; ".join(json.loads(r["lines"]))))
+            urls = list(dict.fromkeys([r["url"] for r in rs] + [u for r in rs for u in (r.get("also") or "").split(",") if u]))   # one page per schedule first
+            out.append({"url": rs[0]["url"], "title": "%d distinct %s schedules" % (len(rs), kind), "pub": rs[0]["pub"],
+                        "rank": 4, "kind": kind, "lines": "\n".join(lines), "also": ",".join(urls)})
+        return out

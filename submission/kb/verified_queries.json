@@ -52,6 +52,9 @@
    "sql": "SELECT * FROM (\n  SELECT r.url, r.family, r.label, r.head, r.eff, r.rate, r.apr, r.apy, r.minearn, r.rank, r.hay, r.lo, r.hi, r.yr_lo, r.yr_hi,\n         (SELECT group_concat(DISTINCT x.url) FROM rates x WHERE x.snap_idx=r.snap_idx AND x.ckey=r.ckey AND x.rank<=3\n            AND x.rate IS r.rate AND x.apr IS r.apr AND x.apy IS r.apy) AS also,\n         ROW_NUMBER() OVER (PARTITION BY r.ckey ORDER BY (r.rank>1), COALESCE(NULLIF(r.eff,''),'0000') DESC, r.rank) AS rn\n  FROM rates r WHERE r.snap_idx=:si AND r.family=:family AND r.segment=:segment)\n WHERE rn=1 AND (:amount IS NULL OR lo IS NULL OR (:amount>=lo AND :amount<=hi))\n   AND (:model_year IS NULL OR yr_lo IS NULL OR (:model_year>=yr_lo AND :model_year<=yr_hi)) {kw}\n ORDER BY label LIMIT 40",
    "defaults": {
     "segment": "personal"
+   },
+   "headline": {
+    "savings": "Share Savings"
    }
   },
   "credit_cards": {

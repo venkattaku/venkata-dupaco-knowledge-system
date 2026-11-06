@@ -17,6 +17,7 @@ Consistency and speed are multiplied by accuracy, as in the official scorer.
 | 7 | 2026-11-06 | `5eacb9f+wip` | Wider keyword recall, two-query router, ordinal rule | **0.871** | 0.900 | 1.000 | 5.34 | 0 | 0 |
 | 8 | 2026-11-06 | `d72ec04+wip` | Section outline for the best pages, merged-hours source URLs, tier-ordered sources | **0.874** | 0.933 | 1.000 | 8.50 | 0 | 0 |
 | 9 | 2026-11-06 | `f085bf3+wip` | Row numbers kept out of answer text (default-product rule tried, no effect) | **0.863** | 0.933 | 1.000 | 9.66 | 0 | 0 |
+| 10 | 2026-11-06 | `5215f4f+wip` | Hours as one list per kind, main-product flag and ordering for rates, one page per schedule in sources | **0.880** | 0.938 | 1.000 | 8.30 | 0 | 0 |
 <!-- ROWS -->
 
 <!-- SECTIONS -->
@@ -329,3 +330,28 @@ Questions below 1.0:
 | dup-005 | list_completeness | 0.00 | behaviour / source |
 | dup-049 | conflict_resolution | 0.00 | missed 0.20 |
 | dup-066 | branch_info | 0.85 | behaviour / source |
+
+## Iteration 10: Hours as one list per kind, main-product flag and ordering for rates, one page per schedule in sources
+
+- Commit: `5215f4f+wip`  |  Date: 2026-11-06  |  Ingest: 4.4s  |  p50/p95/max latency: 4.9/8.3/18.85s
+- Questions at full score: 38/40
+- local run 23 (DeepInfra)
+
+| Category | n | Score |
+|---|---:|---:|
+| branch_info | 6 | 1.00 |
+| conflict_resolution | 3 | 0.67 |
+| current_value | 3 | 1.00 |
+| entity_attribution | 4 | 1.00 |
+| list_completeness | 4 | 0.75 |
+| should_refuse | 3 | 1.00 |
+| stale_trap | 7 | 1.00 |
+| temporal_as_of | 4 | 1.00 |
+| tier_disambiguation | 6 | 1.00 |
+
+Questions below 1.0:
+
+| ID | Category | Score | Why |
+|---|---|---:|---|
+| dup-005 | list_completeness | 0.00 | behaviour / source |
+| dup-049 | conflict_resolution | 0.00 | missed 0.20 |
