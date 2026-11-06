@@ -3,13 +3,14 @@ import json
 import sqlite3
 
 from . import parse as P
+from .vec import Vectors
 
 SCHEMA = """
 CREATE TABLE snaps  (idx INTEGER PRIMARY KEY, snap_id TEXT, taken_on TEXT);
 CREATE TABLE pages  (snap_idx INT, url TEXT, title TEXT, rank INT, pub TEXT, fetched_at TEXT);
 CREATE TABLE rates  (id INTEGER PRIMARY KEY, snap_idx INT, url TEXT, rank INT, family TEXT, segment TEXT,
                      label TEXT, ckey TEXT, head TEXT, ctx TEXT, eff TEXT, rate REAL, apr REAL, apy REAL,
-                     minearn REAL, raw TEXT);
+                     minearn REAL, raw TEXT, hay TEXT, lo REAL, hi REAL, yr_lo INT, yr_hi INT);
 CREATE INDEX rates_i ON rates(snap_idx, family);
 CREATE TABLE cards  (snap_idx INT, url TEXT, rank INT, name TEXT, lo REAL, hi REAL, intro REAL, intro_text TEXT);
 CREATE TABLE hours  (snap_idx INT, url TEXT, title TEXT, pub TEXT, kind TEXT, lines TEXT, blurb TEXT);
@@ -30,14 +31,18 @@ class Store:
         self.db.executescript(SCHEMA)
         self.snaps = []                  # [(snap_id, taken_on)]
         self._sent = {}                  # text -> [id, rank, pub]
+        self.vec = Vectors.from_env()    # optional dense vectors (None -> FTS5 only)
 
     # ------------------------------------------------------------ ingest
     def ingest(self, snapshot):
+        """Parse every page of one snapshot into the tables: rates, cards, hours, branch locator, links and
+        de-duplicated text passages (`sent`). A passage seen in several snapshots is stored once, with the range of
+        snapshots (first_idx..last_idx) in which it exists."""
         idx = len(self.snaps)
         self.snaps.append((snapshot.snapshot_id, snapshot.taken_on))
         db = self.db
         db.execute("INSERT INTO snaps VALUES (?,?,?)", (idx, snapshot.snapshot_id, snapshot.taken_on))
-        seen_text = set()
+        seen_text = set()             # passages present in this snapshot
         new_sent = []
         for pg in snapshot.pages:
             md = pg.markdown or ""
@@ -48,11 +53,16 @@ class Store:
             path = P.url_path(url)
 
             for r in P.parse_rate_tables(url, md):
+                tb = P.tier_bounds(r["label"])
+                yr = P.model_years(r["label"])
+                hay = " " + " ".join(P.tokens(" ".join([r["label"], r["head"], r["ctx"], path.replace("/", " ")]))) + " "
                 db.execute(
-                    "INSERT INTO rates(snap_idx,url,rank,family,segment,label,ckey,head,ctx,eff,rate,apr,apy,minearn,raw)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO rates(snap_idx,url,rank,family,segment,label,ckey,head,ctx,eff,rate,apr,apy,minearn,raw,"
+                    "hay,lo,hi,yr_lo,yr_hi) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (idx, url, rank, r["family"], r["segment"], r["label"], P.ckey(r["family"] + "|" + r["label"]),
-                     r["head"], r["ctx"], r["eff"], r["rate"], r["apr"], r["apy"], r["minearn"], r["raw"]))
+                     r["head"], r["ctx"], r["eff"], r["rate"], r["apr"], r["apy"], r["minearn"], r["raw"], hay,
+                     tb[0] if tb else None, min(tb[1], 1e15) if tb else None,
+                     yr[0] if yr else None, yr[1] if yr else None))
             if "credit-cards" in path:
                 for c in P.parse_card_rows(url, md):
                     db.execute("INSERT INTO cards VALUES (?,?,?,?,?,?,?,?)",
@@ -89,7 +99,8 @@ class Store:
                         i = cur[3]
                         new_sent[i] = (url, rank, pub, head, pg.title or "", text, idx, idx)
                         cur[1], cur[2] = rank, pub
-        # insert new sentences + FTS rows; extend last_idx of those still present
+        # new passages: insert, index for keyword search, and embed for vector search; then extend last_idx of all present ones
+        vids, vtexts = [], []
         for (url, rank, pub, head, title, text, fi, li) in new_sent:
             cur = db.execute("INSERT INTO sent(url,rank,pub,head,title,text,first_idx,last_idx) VALUES (?,?,?,?,?,?,?,?)",
                              (url, rank, pub, head, title, text, fi, li))
@@ -98,6 +109,10 @@ class Store:
             slug = " ".join(P.tokens(P.url_path(url) + " " + title + " " + head))
             db.execute("INSERT INTO sent_fts(rowid, stext) VALUES (?,?)",
                        (sid, " ".join(P.tokens(text)) + " " + slug))
+            vids.append(sid)
+            vtexts.append(((head + ". ") if head else "") + text[:1200])
+        if self.vec is not None:
+            self.vec.add(vids, vtexts)
         present = [self._sent[t][0] for t in seen_text if t in self._sent and self._sent[t][0] is not None]
         for i in range(0, len(present), 500):
             ch = present[i:i + 500]

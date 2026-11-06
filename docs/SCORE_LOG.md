@@ -10,6 +10,11 @@ Consistency and speed are multiplied by accuracy, as in the official scorer.
 | 0 | 2026-11-05 | `dc0266f` | Starter (naive paragraph overlap), unchanged | **0.093** | 0.093 | 1.000 | 0.31 | 0 | 0 |
 | 1 | 2026-11-05 | `c58ed96+wip` | SQLite ingest + verified queries (rule router, templated answers) | **0.969** | 0.969 | 1.000 | 1.14 | 0 | 0 |
 | 2 | 2026-11-05 | `8b7c545+wip` | Verified queries moved to JSON + optional Groq intent router | **0.969** | 0.969 | 1.000 | 1.10 | 0 | 0 |
+| 3 | 2026-11-06 | `5eacb9f+wip` | DeepInfra LLM router + answer writer | **0.774** | 0.805 | 1.000 | 5.94 | 0 | 0 |
+| 4 | 2026-11-06 | `5eacb9f+wip` | Tier waterfall, per-step trace, hedged requests | **0.769** | 0.851 | 1.000 | 11.80 | 0 | 0 |
+| 5 | 2026-11-06 | `5eacb9f+wip` | Hours schedules merged, link texts, partial answers | **0.844** | 0.874 | 1.000 | 5.60 | 0 | 0 |
+| 6 | 2026-11-06 | `5eacb9f+wip` | Dense vectors (numpy) fused with FTS5 | **0.840** | 0.881 | 1.000 | 6.75 | 1 | 0 |
+| 7 | 2026-11-06 | `5eacb9f+wip` | Wider keyword recall, two-query router, ordinal rule | **0.871** | 0.900 | 1.000 | 5.34 | 0 | 0 |
 <!-- ROWS -->
 
 <!-- SECTIONS -->
@@ -120,3 +125,153 @@ Questions below 1.0:
 | ID | Category | Score | Why |
 |---|---|---:|---|
 | dup-005 | list_completeness | 0.00 | behaviour / source |
+
+## Iteration 3: DeepInfra LLM router + answer writer
+
+- Commit: `5eacb9f+wip`  |  Date: 2026-11-06  |  Ingest: 8.0s  |  p50/p95/max latency: 3.29/5.94/9.05s
+- Questions at full score: 30/40
+- local run 8 (DeepInfra)
+
+| Category | n | Score |
+|---|---:|---:|
+| branch_info | 6 | 0.87 |
+| conflict_resolution | 3 | 0.33 |
+| current_value | 3 | 0.67 |
+| entity_attribution | 4 | 1.00 |
+| list_completeness | 4 | 0.50 |
+| should_refuse | 3 | 1.00 |
+| stale_trap | 7 | 0.86 |
+| temporal_as_of | 4 | 0.75 |
+| tier_disambiguation | 6 | 1.00 |
+
+Questions below 1.0:
+
+| ID | Category | Score | Why |
+|---|---|---:|---|
+| dup-005 | list_completeness | 0.00 | behaviour / source |
+| dup-008 | stale_trap | 0.00 | missed dupaco.com/personal/savings-account |
+| dup-049 | conflict_resolution | 0.00 | missed 0.20 |
+| dup-060 | current_value | 0.00 | missed 800-373-7600 |
+| dup-081 | conflict_resolution | 0.00 | missed Iowa, Illinois, Wisconsin |
+| dup-088 | temporal_as_of | 0.00 | missed 294 |
+| dup-094 | list_completeness | 0.00 | missed Apple Pay, Google Pay, Samsung Pay |
+| dup-104 | branch_info | 0.50 | missed noon |
+| dup-064 | branch_info | 0.85 | behaviour / source |
+| dup-066 | branch_info | 0.85 | behaviour / source |
+
+## Iteration 4: Tier waterfall, per-step trace, hedged requests
+
+- Commit: `5eacb9f+wip`  |  Date: 2026-11-06  |  Ingest: 8.3s  |  p50/p95/max latency: 3.15/11.8/13.12s
+- Questions at full score: 32/40
+- local run 11 (DeepInfra)
+
+| Category | n | Score |
+|---|---:|---:|
+| branch_info | 6 | 0.87 |
+| conflict_resolution | 3 | 0.67 |
+| current_value | 3 | 0.67 |
+| entity_attribution | 4 | 1.00 |
+| list_completeness | 4 | 0.75 |
+| should_refuse | 3 | 1.00 |
+| stale_trap | 7 | 0.86 |
+| temporal_as_of | 4 | 0.75 |
+| tier_disambiguation | 6 | 1.00 |
+
+Questions below 1.0:
+
+| ID | Category | Score | Why |
+|---|---|---:|---|
+| dup-005 | list_completeness | 0.00 | behaviour / source |
+| dup-008 | stale_trap | 0.00 | missed dupaco.com/personal/savings-account |
+| dup-049 | conflict_resolution | 0.00 | missed 0.20 |
+| dup-060 | current_value | 0.00 | missed 800-373-7600 |
+| dup-088 | temporal_as_of | 0.00 | missed 294 |
+| dup-104 | branch_info | 0.50 | missed noon |
+| dup-064 | branch_info | 0.85 | behaviour / source |
+| dup-066 | branch_info | 0.85 | behaviour / source |
+
+## Iteration 5: Hours schedules merged, link texts, partial answers
+
+- Commit: `5eacb9f+wip`  |  Date: 2026-11-06  |  Ingest: 9.3s  |  p50/p95/max latency: 2.74/5.6/6.49s
+- Questions at full score: 33/40
+- local run 14 (DeepInfra)
+
+| Category | n | Score |
+|---|---:|---:|
+| branch_info | 6 | 0.87 |
+| conflict_resolution | 3 | 0.67 |
+| current_value | 3 | 0.67 |
+| entity_attribution | 4 | 1.00 |
+| list_completeness | 4 | 0.75 |
+| should_refuse | 3 | 1.00 |
+| stale_trap | 7 | 1.00 |
+| temporal_as_of | 4 | 0.75 |
+| tier_disambiguation | 6 | 1.00 |
+
+Questions below 1.0:
+
+| ID | Category | Score | Why |
+|---|---|---:|---|
+| dup-005 | list_completeness | 0.00 | behaviour / source |
+| dup-049 | conflict_resolution | 0.00 | missed 0.20 |
+| dup-060 | current_value | 0.00 | missed 800-373-7600 |
+| dup-088 | temporal_as_of | 0.00 | missed 294 |
+| dup-104 | branch_info | 0.50 | missed noon |
+| dup-064 | branch_info | 0.85 | behaviour / source |
+| dup-066 | branch_info | 0.85 | behaviour / source |
+
+## Iteration 6: Dense vectors (numpy) fused with FTS5
+
+- Commit: `5eacb9f+wip`  |  Date: 2026-11-06  |  Ingest: 45.9s  |  p50/p95/max latency: 3.13/6.75/7.29s
+- Questions at full score: 35/40
+- local run 17 (DeepInfra)
+
+| Category | n | Score |
+|---|---:|---:|
+| branch_info | 6 | 1.00 |
+| conflict_resolution | 3 | 0.33 |
+| current_value | 3 | 1.00 |
+| entity_attribution | 4 | 0.96 |
+| list_completeness | 4 | 0.75 |
+| should_refuse | 3 | 1.00 |
+| stale_trap | 7 | 0.86 |
+| temporal_as_of | 4 | 1.00 |
+| tier_disambiguation | 6 | 1.00 |
+
+Questions below 1.0:
+
+| ID | Category | Score | Why |
+|---|---|---:|---|
+| dup-005 | list_completeness | 0.00 | behaviour / source |
+| dup-049 | conflict_resolution | 0.00 | missed 0.20 |
+| dup-081 | conflict_resolution | 0.00 | missed Iowa, Illinois, Wisconsin |
+| dup-087 | stale_trap | 0.00 | TRAP 2020 |
+| dup-054 | entity_attribution | 0.85 | behaviour / source |
+
+## Iteration 7: Wider keyword recall, two-query router, ordinal rule
+
+- Commit: `5eacb9f+wip`  |  Date: 2026-11-06  |  Ingest: 7.9s  |  p50/p95/max latency: 2.88/5.34/7.87s
+- Questions at full score: 35/40
+- local run 19 (DeepInfra)
+
+| Category | n | Score |
+|---|---:|---:|
+| branch_info | 6 | 0.97 |
+| conflict_resolution | 3 | 0.33 |
+| current_value | 3 | 1.00 |
+| entity_attribution | 4 | 0.96 |
+| list_completeness | 4 | 0.75 |
+| should_refuse | 3 | 1.00 |
+| stale_trap | 7 | 1.00 |
+| temporal_as_of | 4 | 1.00 |
+| tier_disambiguation | 6 | 1.00 |
+
+Questions below 1.0:
+
+| ID | Category | Score | Why |
+|---|---|---:|---|
+| dup-005 | list_completeness | 0.00 | behaviour / source |
+| dup-049 | conflict_resolution | 0.00 | missed 0.20 |
+| dup-081 | conflict_resolution | 0.00 | missed Iowa, Illinois, Wisconsin |
+| dup-054 | entity_attribution | 0.85 | behaviour / source |
+| dup-066 | branch_info | 0.85 | behaviour / source |

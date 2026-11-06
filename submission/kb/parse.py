@@ -10,8 +10,6 @@ i me my we our you your it its this that these those what which who whom how whe
 about any all there their them they than then so if not no yes please tell give provide get want like know
 dupaco credit union offer offers have has had much many""".split())
 
-GENERIC_RATE_WORDS = set("rate rates interest apr apy dividend current right now today percent percentage annual".split())
-
 
 def stem(tok: str) -> str:
     t = tok.lower()
@@ -28,10 +26,6 @@ def tokens(text: str):
     text = re.sub(r"(?<=\d),(?=\d{3})", "", text)           # 1,000 -> 1000
     text = re.sub(r"[-/_]", " ", text)
     return [stem(t) for t in re.findall(r"[a-z0-9$][a-z0-9$.%]*", text) if stem(t)]
-
-
-def content_tokens(text: str):
-    return [t for t in tokens(text) if t not in STOP and t.rstrip(".") not in STOP]
 
 
 # ------------------------------------------------------------------ authority
@@ -163,7 +157,6 @@ def family_of(url: str, head: str, ctx: str, header, label: str) -> str:
     h = " ".join(header).lower()
     lab = label.lower()
     path = url_path(url)
-    blob = " ".join([lab, head.lower(), ctx.lower()])
     if "model year" in lab:
         return "auto"
     if re.search(r"year fixed|^(purchase|refinance):|\barm\b|adjustable", lab):
@@ -376,3 +369,13 @@ def parse_card_rows(url: str, md: str):
         if rec["lo"] is not None:
             out.append(rec)
     return out
+
+
+def model_years(label: str):
+    """'2024-27 Model Year' -> (2024, 2027); '2016 Model Year (and older)' -> (0, 2016); else None."""
+    m = re.match(r"\s*(\d{4})\s*-\s*(\d{2,4})", label)
+    if m:
+        hi = m.group(2)
+        return int(m.group(1)), int(hi if len(hi) == 4 else m.group(1)[:2] + hi)
+    m = re.match(r"\s*(\d{4}).*older", label, re.I)
+    return (0, int(m.group(1))) if m else None

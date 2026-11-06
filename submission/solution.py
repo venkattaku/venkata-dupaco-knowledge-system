@@ -3,9 +3,8 @@ Dupaco knowledge system: ingest snapshots into SQLite, answer with verified quer
 
     build() -> KnowledgeSystem   (ingest / answer / conflicts)
 
-No network and no API key are needed. See NOTES.md for the design.
+An LLM (DeepInfra, DEEPINFRA_API_KEY) chooses the verified query and writes the answer from its rows; see NOTES.md.
 """
-import os
 import sys
 from pathlib import Path
 
@@ -16,7 +15,7 @@ for _d in _here.parents:
         sys.path.insert(0, str(_d / "harness"))
         break
 
-from contract import Answer, Conflict, Snapshot  # noqa: E402
+from contract import Answer, Snapshot  # noqa: E402
 from kb.engine import Engine  # noqa: E402
 from kb.store import Store  # noqa: E402
 

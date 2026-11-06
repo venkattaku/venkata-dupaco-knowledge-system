@@ -4,3 +4,6 @@ __pycache__/
 .DS_Store
 .env
 snapshots/0*/
+solution_trace.csv
+.llm_cache.json
+.emb_cache.pkl
