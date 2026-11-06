@@ -7,3 +7,4 @@ snapshots/0*/
 solution_trace.csv
 .llm_cache.json
 .emb_cache.pkl
+docs/score_reports/
