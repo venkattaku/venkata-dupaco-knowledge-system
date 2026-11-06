@@ -198,16 +198,3 @@ class Vectors:
         idx = np.argpartition(-sc, k - 1)[:k]
         idx = idx[np.argsort(-sc[idx])]
         return [(self.ids[i], float(sc[i])) for i in idx]
-
-    def sims(self, ids, qv):
-        """{passage id: cosine} for the given ids (only those that have vectors)."""
-        if not self.ok or qv is None or not self.ids:
-            return {}
-        if not hasattr(self, "_index") or len(self._index) != len(self.ids):
-            self._index = {sid: i for i, sid in enumerate(self.ids)}
-        out = {}
-        for sid in ids:
-            i = self._index.get(sid)
-            if i is not None:
-                out[sid] = float(self._chunks[i].astype(np.float32) @ qv)
-        return out

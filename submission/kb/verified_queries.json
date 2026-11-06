@@ -78,7 +78,7 @@
     }
    },
    "required": [],
-   "sql": "SELECT * FROM (SELECT s.url, s.title, s.pub, s.rank, 'official-text' AS kind, substr(s.text,1,300) AS lines, '' AS first_pub, 1 AS n FROM sent s\n   WHERE s.rank<=2 AND s.first_idx<=:si AND s.last_idx>=:si AND (s.text LIKE '%a.m.%' OR s.text LIKE '%p.m.%') AND (s.text LIKE '%Monday%' OR s.text LIKE '%obby%' OR s.text LIKE '%rive-up%' OR s.text LIKE '%rive up%')\n   AND (:place='' OR s.text LIKE '%'||:place||'%' OR s.head LIKE '%'||:place||'%') ORDER BY s.rank, s.pub DESC LIMIT 6)\n UNION ALL\n SELECT * FROM (SELECT substr(MAX(h.pub||'|'||h.url),12) AS url, substr(group_concat(DISTINCT substr(h.title,1,70)),1,200) AS title, MAX(h.pub) AS pub, 4 AS rank, h.kind,\n   replace(replace(h.lines,'\\u2013','-'),char(8211),'-') AS lines, MIN(h.pub) AS first_pub, COUNT(*) AS n FROM hours h WHERE h.snap_idx=:si\n   AND (h.pub='' OR h.pub<=:asof) AND (:place='' OR h.title LIKE '%'||:place||'%' OR h.blurb LIKE '%'||:place||'%')\n   GROUP BY h.kind, replace(replace(h.lines,'\\u2013','-'),char(8211),'-') ORDER BY pub DESC LIMIT 16)",
+   "sql": "SELECT * FROM (SELECT s.url, s.title, s.pub, s.rank, 'official-text' AS kind, substr(s.text,1,300) AS lines, '' AS first_pub, 1 AS n, '' AS also FROM sent s\n   WHERE s.rank<=2 AND s.first_idx<=:si AND s.last_idx>=:si AND (s.text LIKE '%a.m.%' OR s.text LIKE '%p.m.%') AND (s.text LIKE '%Monday%' OR s.text LIKE '%obby%' OR s.text LIKE '%rive-up%' OR s.text LIKE '%rive up%')\n   AND (:place='' OR s.text LIKE '%'||:place||'%' OR s.head LIKE '%'||:place||'%') ORDER BY s.rank, s.pub DESC LIMIT 6)\n UNION ALL\n SELECT * FROM (SELECT substr(MAX(h.pub||'|'||h.url),12) AS url, substr(group_concat(DISTINCT substr(h.title,1,70)),1,200) AS title, MAX(h.pub) AS pub, 4 AS rank, h.kind,\n   replace(replace(h.lines,'\\u2013','-'),char(8211),'-') AS lines, MIN(h.pub) AS first_pub, COUNT(*) AS n, group_concat(DISTINCT h.url) AS also FROM hours h WHERE h.snap_idx=:si\n   AND (h.pub='' OR h.pub<=:asof) AND (:place='' OR h.title LIKE '%'||:place||'%' OR h.blurb LIKE '%'||:place||'%')\n   GROUP BY h.kind, replace(replace(h.lines,'\\u2013','-'),char(8211),'-') ORDER BY pub DESC LIMIT 16)",
    "defaults": {
     "place": ""
    }
@@ -130,7 +130,7 @@
    "sql": "SELECT l.url AS page_url, p.title, COUNT(*) AS matches, MIN(l.href) AS example_link, substr(group_concat(DISTINCT substr(l.text,1,60)),1,220) AS link_texts FROM links l\n  JOIN pages p ON p.snap_idx=l.snap_idx AND p.url=l.url\n  WHERE l.snap_idx=:si AND p.rank<=3 AND (l.text LIKE '%'||:topic||'%' OR l.href LIKE '%'||:topic||'%' OR p.title LIKE '%'||:topic||'%')\n  GROUP BY l.url ORDER BY (l.url LIKE '%business%'), p.rank, matches DESC LIMIT 8"
   },
   "search_text": {
-   "description": "Full-text passage search of the website. Use for anything else: routing number, closures, membership eligibility, fees, phone numbers, policies. Query words must match the page wording, so add synonyms of the action (e.g. update -> change, review, correct; contact information -> personal information, address, phone).",
+   "description": "Full-text passage search of the website. Use for anything else: routing number, closures, membership eligibility, fees, phone numbers, policies. Query words must match the page wording, so add synonyms of the action (e.g. update -> change, review, correct; contact information -> personal information, address, phone). The result also lists the section headings of the best pages (one row each), so facts that sit next to the matched passage are visible.",
    "params": {
     "query": {
      "type": "string",
@@ -145,7 +145,7 @@
     "query"
    ],
    "sql": "SELECT s.id, s.url, s.rank, s.pub, s.head, substr(s.text,1,500) AS text FROM sent_fts f JOIN sent s ON s.id=f.rowid\n  WHERE sent_fts MATCH :match AND s.first_idx<=:si AND s.last_idx>=:si ORDER BY bm25(sent_fts)+0.4*s.rank LIMIT 15",
-   "context_sql": "SELECT id, url, rank, pub, head, substr(text,1,500) AS text FROM sent WHERE url=:u AND rank<=3 AND first_idx<=:si AND last_idx>=:si ORDER BY id LIMIT 12"
+   "outline_sql": "SELECT MIN(id) AS id, url, MIN(rank) AS rank, MAX(pub) AS pub, head, substr(group_concat(text, ' '), 1, 300) AS text FROM sent WHERE url=:u AND rank<=3 AND head<>'' AND first_idx<=:si AND last_idx>=:si GROUP BY head ORDER BY MIN(id) LIMIT 14"
   }
  }
 }

@@ -54,19 +54,14 @@ class Catalog:
                     seen = {(r["url"], r["head"], r["text"]) for r in rows}
                     rows += [r for r in store.q(sql, p) if (r["url"], r["head"], r["text"]) not in seen]
             rows = self._fuse(store, t, rows[:20], qvec, si)
-            have = {r["id"] for r in rows}
-            for u in list(dict.fromkeys(r["url"] for r in rows[:4]))[:2]:      # context: more chunks of the best pages
-                cand = store.q(t["context_sql"].replace("LIMIT 12", "LIMIT 120"), {"u": u, "si": si})
-                vec = getattr(store, "vec", None)
-                if vec is not None and qvec is not None and len(cand) > 12:      # keep the chunks closest to the question
-                    sim = vec.sims([r["id"] for r in cand], qvec)
-                    best = sorted(cand, key=lambda r: -sim.get(r["id"], -1))[:12]
-                    cand = sorted(best, key=lambda r: r["id"])
-                for r in cand[:12]:
-                    if r["id"] not in have:
-                        have.add(r["id"])
+            # page outline: one row per section of the two best official pages, so facts that sit under a
+            # neighbouring heading (e.g. "Local Service" next to "You're Eligible to Join") are visible too
+            seen = {(r["url"], r["head"]) for r in rows}
+            for u in list(dict.fromkeys(r["url"] for r in rows[:4]))[:2]:
+                for r in store.q(t["outline_sql"], {"u": u, "si": si}):
+                    if (r["url"], r["head"]) not in seen:
                         rows.append(r)
-            return rows[:30]
+            return rows[:36]
         return store.q(sql, p)
 
     @staticmethod

@@ -154,6 +154,8 @@ class Engine:
         for r in reversed([r for r in rows if r.get("kind") == "official-text"][:2]):    # hours: official pages always count
             if str(r.get("url", "")).startswith("http") and r["url"] not in urls:
                 urls.insert(0, r["url"])
+        tier = {r["url"]: r.get("rank") or 9 for r in rows if r.get("url")}
+        urls.sort(key=lambda u: tier.get(u, 9))                 # official pages first (stable: keeps the LLM's order within a tier)
         confident = bool(a.get("confident", True))
         # "partial" = the closest figures were given because the exact period is not on the site: keep that text
         keep = confident or (bool(a.get("partial")) and bool(re.search(r"\d", a.get("text") or "")))
