@@ -1,0 +1,151 @@
+{
+ "version": 2,
+ "notes": "Every statement the LLM may trigger. Params are named; :si (snapshot index) is injected by the engine.",
+ "tools": {
+  "rates": {
+   "description": "Current rates/APR/APY/dividends for loans, mortgages, certificates, checking, savings, money market.",
+   "params": {
+    "family": {
+     "type": "string",
+     "enum": [
+      "mortgage",
+      "home_improvement",
+      "auto",
+      "personal_loan",
+      "cert",
+      "checking",
+      "savings"
+     ],
+     "description": "Product family."
+    },
+    "segment": {
+     "type": "string",
+     "enum": [
+      "personal",
+      "business"
+     ],
+     "description": "Default personal."
+    },
+    "keywords": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Product-name words only, as they appear in the product label (e.g. ['30','year'], ['money','market'], ['84','month']). NEVER rate values or phrases from the question; omit if unsure."
+    },
+    "amount": {
+     "type": "number",
+     "description": "Dollar amount if the question gives one (balance or loan size)."
+    },
+    "model_year": {
+     "type": "integer",
+     "description": "Vehicle model year if given."
+    },
+    "as_of": {
+     "type": "string",
+     "description": "YYYY-MM-DD, only if the question asks about a past date (e.g. 'as of May 2026' -> 2026-05-31). Omit otherwise."
+    }
+   },
+   "required": [
+    "family"
+   ],
+   "sql": "SELECT * FROM (\n  SELECT r.url, r.family, r.label, r.head, r.eff, r.rate, r.apr, r.apy, r.minearn, r.rank, r.hay, r.lo, r.hi, r.yr_lo, r.yr_hi,\n         (SELECT group_concat(DISTINCT x.url) FROM rates x WHERE x.snap_idx=r.snap_idx AND x.ckey=r.ckey AND x.rank<=3\n            AND x.rate IS r.rate AND x.apr IS r.apr AND x.apy IS r.apy) AS also,\n         ROW_NUMBER() OVER (PARTITION BY r.ckey ORDER BY (r.rank>1), COALESCE(NULLIF(r.eff,''),'0000') DESC, r.rank) AS rn\n  FROM rates r WHERE r.snap_idx=:si AND r.family=:family AND r.segment=:segment)\n WHERE rn=1 AND (:amount IS NULL OR lo IS NULL OR (:amount>=lo AND :amount<=hi))\n   AND (:model_year IS NULL OR yr_lo IS NULL OR (:model_year>=yr_lo AND :model_year<=yr_hi)) {kw}\n ORDER BY label LIMIT 40",
+   "defaults": {
+    "segment": "personal"
+   }
+  },
+  "credit_cards": {
+   "description": "Dupaco credit cards: names, APR ranges, intro offers.",
+   "params": {
+    "as_of": {
+     "type": "string",
+     "description": "YYYY-MM-DD, only if the question asks about a past date (e.g. 'as of May 2026' -> 2026-05-31). Omit otherwise."
+    }
+   },
+   "required": [],
+   "sql": "SELECT url, name, lo AS apr_lo, hi AS apr_hi, intro, intro_text FROM cards WHERE snap_idx=:si ORDER BY rank LIMIT 12"
+  },
+  "branch_hours": {
+   "description": "Lobby/drive-up hours, waterfall by source: first official-site passages (tier official), then hours listed in newsroom releases (older, per release date). Use for hours, comparing branches, or a named branch. Newsroom rows are DISTINCT schedules (same lines merged): first_pub..pub is the date range, n the number of announcements, title names the branches/events.",
+   "params": {
+    "place": {
+     "type": "string",
+     "description": "Branch/city/place name, e.g. 'Hy-Vee', 'Dubuque'. Empty for all."
+    },
+    "as_of": {
+     "type": "string",
+     "description": "YYYY-MM-DD, only if the question asks about a past date (e.g. 'as of May 2026' -> 2026-05-31). Omit otherwise."
+    }
+   },
+   "required": [],
+   "sql": "SELECT * FROM (SELECT s.url, s.title, s.pub, s.rank, 'official-text' AS kind, substr(s.text,1,300) AS lines, '' AS first_pub, 1 AS n FROM sent s\n   WHERE s.rank<=2 AND s.first_idx<=:si AND s.last_idx>=:si AND (s.text LIKE '%a.m.%' OR s.text LIKE '%p.m.%') AND (s.text LIKE '%Monday%' OR s.text LIKE '%obby%' OR s.text LIKE '%rive-up%' OR s.text LIKE '%rive up%')\n   AND (:place='' OR s.text LIKE '%'||:place||'%' OR s.head LIKE '%'||:place||'%') ORDER BY s.rank, s.pub DESC LIMIT 6)\n UNION ALL\n SELECT * FROM (SELECT substr(MAX(h.pub||'|'||h.url),12) AS url, substr(group_concat(DISTINCT substr(h.title,1,70)),1,200) AS title, MAX(h.pub) AS pub, 4 AS rank, h.kind,\n   replace(replace(h.lines,'\\u2013','-'),char(8211),'-') AS lines, MIN(h.pub) AS first_pub, COUNT(*) AS n FROM hours h WHERE h.snap_idx=:si\n   AND (h.pub='' OR h.pub<=:asof) AND (:place='' OR h.title LIKE '%'||:place||'%' OR h.blurb LIKE '%'||:place||'%')\n   GROUP BY h.kind, replace(replace(h.lines,'\\u2013','-'),char(8211),'-') ORDER BY pub DESC LIMIT 16)",
+   "defaults": {
+    "place": ""
+   }
+  },
+  "branch_locations": {
+   "description": "Branch/ATM addresses and services from the locator.",
+   "params": {
+    "place": {
+     "type": "string",
+     "description": "Street, city or name fragment. Empty for all."
+    },
+    "as_of": {
+     "type": "string",
+     "description": "YYYY-MM-DD, only if the question asks about a past date (e.g. 'as of May 2026' -> 2026-05-31). Omit otherwise."
+    }
+   },
+   "required": [],
+   "sql": "SELECT url, name, kind, street, city, state, zip, services FROM locator WHERE snap_idx=:si\n  AND (:place='' OR name LIKE '%'||:place||'%' OR street LIKE '%'||:place||'%' OR city LIKE '%'||:place||'%') LIMIT 25",
+   "defaults": {
+    "place": ""
+   }
+  },
+  "branch_count": {
+   "description": "How many branch office locations Dupaco has (boilerplate counts, newest first).",
+   "params": {
+    "as_of": {
+     "type": "string",
+     "description": "YYYY-MM-DD, only if the question asks about a past date (e.g. 'as of May 2026' -> 2026-05-31). Omit otherwise."
+    }
+   },
+   "required": [],
+   "sql": "SELECT url, pub, value AS branch_count FROM counts WHERE snap_idx=:si ORDER BY pub DESC, value DESC LIMIT 6"
+  },
+  "links": {
+   "description": "Find the official PAGE for a topic (where to see rates/info, how to join/apply, locator, forms). Rows: page_url = the page to give for 'see/find' questions; example_link = an application/action link on it (give it for 'join/apply/open'). Topic = ONE word, e.g. 'certificate', 'join', 'locator'. link_texts = the matching link labels on that page (evidence the page covers the topic). Rows are ranked best first: the first page_url is the page that covers the topic.",
+   "params": {
+    "topic": {
+     "type": "string",
+     "description": "One or two words, e.g. 'mortgage', 'routing'."
+    },
+    "as_of": {
+     "type": "string",
+     "description": "YYYY-MM-DD, only if the question asks about a past date (e.g. 'as of May 2026' -> 2026-05-31). Omit otherwise."
+    }
+   },
+   "required": [
+    "topic"
+   ],
+   "sql": "SELECT l.url AS page_url, p.title, COUNT(*) AS matches, MIN(l.href) AS example_link, substr(group_concat(DISTINCT substr(l.text,1,60)),1,220) AS link_texts FROM links l\n  JOIN pages p ON p.snap_idx=l.snap_idx AND p.url=l.url\n  WHERE l.snap_idx=:si AND p.rank<=3 AND (l.text LIKE '%'||:topic||'%' OR l.href LIKE '%'||:topic||'%' OR p.title LIKE '%'||:topic||'%')\n  GROUP BY l.url ORDER BY (l.url LIKE '%business%'), p.rank, matches DESC LIMIT 8"
+  },
+  "search_text": {
+   "description": "Full-text passage search of the website. Use for anything else: routing number, closures, membership eligibility, fees, phone numbers, policies. Query words must match the page wording, so add synonyms of the action (e.g. update -> change, review, correct; contact information -> personal information, address, phone).",
+   "params": {
+    "query": {
+     "type": "string",
+     "description": "2-4 distinctive keywords the answering page would contain (no 'Dupaco'), e.g. 'eligible join charter', 'Hy-Vee branch close'. May call up to 3 times with different queries."
+    },
+    "as_of": {
+     "type": "string",
+     "description": "YYYY-MM-DD, only if the question asks about a past date (e.g. 'as of May 2026' -> 2026-05-31). Omit otherwise."
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "sql": "SELECT s.id, s.url, s.rank, s.pub, s.head, substr(s.text,1,500) AS text FROM sent_fts f JOIN sent s ON s.id=f.rowid\n  WHERE sent_fts MATCH :match AND s.first_idx<=:si AND s.last_idx>=:si ORDER BY bm25(sent_fts)+0.4*s.rank LIMIT 15",
+   "context_sql": "SELECT id, url, rank, pub, head, substr(text,1,500) AS text FROM sent WHERE url=:u AND rank<=3 AND first_idx<=:si AND last_idx>=:si ORDER BY id LIMIT 12"
+  }
+ }
+}
