@@ -112,7 +112,21 @@ class Engine:
             rows = self.cat.run(self.store, "search_text", {"query": q}, si, None, self._vector(qvec))
             logger.step(q, 2, "Query: search_text (fallback, first query was empty)", "query=" + q,
                        "%d rows\n%s" % (len(rows), "\n".join(json.dumps(r, ensure_ascii=False) for r in rows)))
-        return rows, sid, asof
+        return self._unique(rows), sid, asof
+
+    @staticmethod
+    def _unique(rows):
+        """Drop passages that two queries both returned. The prompt keeps only the first 40 rows, so repeats would push
+        later rows (such as a query's page-outline sections) out of what the LLM sees."""
+        seen, out = set(), []
+        for r in rows:
+            key = (r.get("url"), r.get("head"), r.get("text")) if r.get("text") is not None else None
+            if key is not None:
+                if key in seen:
+                    continue
+                seen.add(key)
+            out.append(r)
+        return out
 
     def _interpret(self, q, rows, asof, sid):
         """Step 3: the LLM writes the answer from the (slimmed) rows and names the rows it used. The sources are the
