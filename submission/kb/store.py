@@ -1,6 +1,7 @@
 """SQLite store: every snapshot is ingested into relational tables (see docs/DATA_MODEL.md)."""
 import json
 import sqlite3
+import threading
 
 from . import parse as P
 from .vec import Vectors
@@ -28,6 +29,7 @@ CREATE VIRTUAL TABLE sent_fts USING fts5(stext, tokenize='unicode61');
 class Store:
     def __init__(self):
         self.db = sqlite3.connect(":memory:", check_same_thread=False)
+        self.lock = threading.RLock()
         self.db.executescript(SCHEMA)
         self.snaps = []                  # [(snap_id, taken_on)]
         self._sent = {}                  # text -> [id, rank, pub]
@@ -134,6 +136,7 @@ class Store:
         return best
 
     def q(self, sql, args=()):
-        cur = self.db.execute(sql, args)
-        cols = [c[0] for c in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
+        with self.lock:         # one shared connection: serialise queries when answers run concurrently
+            cur = self.db.execute(sql, args)
+            cols = [c[0] for c in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]

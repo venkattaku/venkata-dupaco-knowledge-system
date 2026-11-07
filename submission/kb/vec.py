@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import trace
+from . import logger
 from .llm import BASE, _ssl
 
 try:
@@ -79,7 +79,7 @@ class Vectors:
             if "HTTP 4" not in str(e) or "HTTP 429" in str(e):
                 raise
             if len(inputs) == 1:
-                trace.log("embed_skip", chars=len(inputs[0]), error=str(e)[:200])
+                logger.log("embed_skip", chars=len(inputs[0]), error=str(e)[:200])
                 return [None]
             h = len(inputs) // 2
             return self._embed_batch(inputs[:h], deadline) + self._embed_batch(inputs[h:], deadline)
@@ -126,10 +126,10 @@ class Vectors:
                 try:
                     self._post(["probe"])
                     self.qprefix = self._prefix_for(m)
-                    trace.log("embed_model", model=m, encoding_format=fmt)
+                    logger.log("embed_model", model=m, encoding_format=fmt)
                     return True
                 except Exception as e:
-                    trace.log("embed_probe_failed", model=m, encoding_format=fmt, error=repr(e)[:300])
+                    logger.log("embed_probe_failed", model=m, encoding_format=fmt, error=repr(e)[:300])
         return False
 
     # ------------------------------------------------------------ passages (ingest)
@@ -140,7 +140,7 @@ class Vectors:
         t0 = time.time()
         if not self.probed and not self._probe():
             self.ok = False
-            trace.log("embed_off", error="no embedding model worked")
+            logger.log("embed_off", error="no embedding model worked")
             return
         keys = [hashlib.sha1((self.model + "|" + t).encode("utf-8", "ignore")).hexdigest() for t in texts]
         texts = [(t.strip() or "-")[:800] for t in texts]
@@ -167,11 +167,11 @@ class Vectors:
                     self.ids.append(sid)
                     self._chunks.append(self.cache[k])
             self._mat = None
-            trace.log("embed", n=len(ids), new=len(todo), model=self.model, seconds=round(time.time() - t0, 1))
+            logger.log("embed", n=len(ids), new=len(todo), model=self.model, seconds=round(time.time() - t0, 1))
         except Exception as e:
             self.ok = False
             self.ids, self._chunks, self._mat = [], [], None
-            trace.log("embed_off", error=repr(e))
+            logger.log("embed_off", error=repr(e))
 
     # ------------------------------------------------------------ query
     def query_vec(self, text):
@@ -182,7 +182,7 @@ class Vectors:
         try:
             v = self._norm(self._embed_batch([self.qprefix + text], time.time() + 12)[0])
         except Exception as e:
-            trace.log("embed_query_error", error=repr(e))
+            logger.log("embed_query_error", error=repr(e))
             return None
         self._qcache[text] = v
         return v

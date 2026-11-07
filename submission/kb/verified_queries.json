@@ -105,7 +105,7 @@
    }
   },
   "branch_count": {
-   "description": "How many branch office locations Dupaco has (boilerplate counts, newest first).",
+   "description": "How many branch office locations Dupaco has: one row per distinct count reported, with the date of its newest report; the row marked newest is the current count.",
    "params": {
     "as_of": {
      "type": "string",
@@ -113,7 +113,7 @@
     }
    },
    "required": [],
-   "sql": "SELECT url, pub, value AS branch_count FROM counts WHERE snap_idx=:si ORDER BY pub DESC, value DESC LIMIT 6"
+   "sql": "SELECT url, pub, branch_count, CASE WHEN rn=1 THEN 'newest report' END AS note FROM (SELECT url, pub, value AS branch_count, ROW_NUMBER() OVER (ORDER BY pub DESC, value DESC) AS rn, ROW_NUMBER() OVER (PARTITION BY value ORDER BY pub DESC) AS vr FROM counts WHERE snap_idx=:si) WHERE vr=1 ORDER BY pub DESC LIMIT 6"
   },
   "links": {
    "description": "Find the official PAGE for a topic (where to see rates/info, how to join/apply, locator, forms). Rows: page_url = the page to give for 'see/find' questions; example_link = an application/action link on it (give it for 'join/apply/open'). Topic = ONE word, e.g. 'certificate', 'join', 'locator'. link_texts = the matching link labels on that page (evidence the page covers the topic). Rows are ranked best first: the first page_url is the page that covers the topic.",

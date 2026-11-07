@@ -4,7 +4,7 @@ __pycache__/
 .DS_Store
 .env
 snapshots/0*/
-solution_trace.csv
+solution_log.csv
 .llm_cache.json
 .emb_cache.pkl
 docs/score_reports/

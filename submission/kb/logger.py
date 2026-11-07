@@ -1,5 +1,5 @@
-"""Tiny CSV trace so a run can be audited step by step (input and output of each step).
-Set DUPACO_TRACE=0 to turn it off. Never records the API key.
+"""Tiny CSV logger so a run can be audited step by step (input and output of each step).
+Set DUPACO_LOG=0 to turn it off. Never records the API key.
 """
 import csv
 import json
@@ -12,11 +12,11 @@ _warned = set()
 
 
 def enabled():
-    return os.environ.get("DUPACO_TRACE", "1") != "0"
+    return os.environ.get("DUPACO_LOG", "1") != "0"
 
 
 def path():
-    return os.environ.get("DUPACO_TRACE_FILE", "solution_trace.csv")
+    return os.environ.get("DUPACO_LOG_FILE", "solution_log.csv")
 
 
 def _cell(v):
