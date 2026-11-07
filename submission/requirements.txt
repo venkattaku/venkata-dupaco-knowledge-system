@@ -1,0 +1,2 @@
+# stdlib + numpy (optional: without it, or without DEEPINFRA_API_KEY, search is FTS5 only). Python 3.9+, sqlite3 with FTS5.
+numpy>=1.24
