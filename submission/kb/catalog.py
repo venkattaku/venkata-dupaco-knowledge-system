@@ -2,9 +2,11 @@
 import json
 from pathlib import Path
 
-from . import parse as P
+from . import parse
 
 PATH = Path(__file__).with_name("verified_queries.json")
+TIER_FIELDS = ("url", "also", "rank", "family", "label", "eff", "rate", "apr", "apy")      # kept on a matching tier row
+MAIN_PRODUCT = "main product of this category"      # flag on the row(s) of a category's headline product
 
 
 class Catalog:
@@ -31,7 +33,7 @@ class Catalog:
             p[k] = args.get(k, t.get("defaults", {}).get(k))
         p.pop("as_of", None)
         if name == "rates":           # product-name keywords narrow the rate rows (one LIKE per keyword)
-            kws = [" ".join(P.tokens(str(w))) for w in (args.get("keywords") or [])]
+            kws = [" ".join(parse.tokens(str(w))) for w in (args.get("keywords") or [])]
             kws = [w for w in kws if w][:6]
             for i, w in enumerate(kws):
                 p["kw%d" % i] = "% " + w + " %"
@@ -42,7 +44,7 @@ class Catalog:
                     r.pop(c, None)
                 main = t.get("headline", {}).get(r["family"])      # the category's main product (e.g. savings -> Share Savings)
                 if main and r["label"].startswith(main):
-                    r["headline"] = "main product of this category"
+                    r["headline"] = MAIN_PRODUCT
             rows.sort(key=lambda r: "headline" not in r)         # stable: main-product rows first, rest keep their order
             return rows
         if name == "rate_lookup":     # criteria search over rate tiers: product, rate value/range, dollar amount
@@ -50,7 +52,8 @@ class Catalog:
         if name == "branch_hours":
             return self._merge_hours(store.q(sql, p))
         if name == "search_text":     # passage search: keywords (FTS5) fused with vector similarity
-            words = [w for w in " ".join(P.tokens(str(args.get("query", "")))).split() if w not in P.STOP and w not in ("dupaco", "credit", "union")]
+            skip = parse.STOP | {"dupaco", "credit", "union"}
+            words = [w for w in parse.tokens(str(args.get("query", ""))) if w not in skip]
             rows = []
             if words:
                 words = ['"%s"' % w.replace('"', "") for w in dict.fromkeys(words)]
@@ -61,7 +64,7 @@ class Catalog:
                     p["match"] = " OR ".join(words)
                     seen = {(r["url"], r["head"], r["text"]) for r in rows}
                     rows += [r for r in store.q(sql, p) if (r["url"], r["head"], r["text"]) not in seen]
-            rows = self._fuse(store, t, rows[:20], qvec, si)
+            rows = self._fuse(store, rows[:20], qvec, si)
             # page outline: one row per section of the two best official pages, so facts that sit under a
             # neighbouring heading (e.g. "Local Service" next to "You're Eligible to Join") are visible too
             seen = {(r["url"], r["head"]) for r in rows}
@@ -86,9 +89,10 @@ class Catalog:
             for k in ("apy", "apr", "rate"):
                 if r.get(k) is not None:
                     return r[k]
+            return None
 
-        want = [w for w in P.tokens(str(args.get("product") or "")) if w]
-        picked = [r for r in tiers if all(w in P.tokens(product(r)) for w in want)] if want else tiers
+        want = [w for w in parse.tokens(str(args.get("product") or "")) if w]
+        picked = [r for r in tiers if all(w in parse.tokens(product(r)) for w in want)] if want else tiers
         picked = picked or tiers                       # unknown product name: fall back to the whole family
         eq, lo, hi, amt = (args.get(k) for k in ("apy_eq", "apy_min", "apy_max", "amount"))
 
@@ -103,8 +107,8 @@ class Catalog:
             by_product.setdefault(product(r), []).append(r)
         filtered = any(a is not None for a in (eq, lo, hi, amt))
         out = []
-        for name, rs in by_product.items():
-            rs = [r for r in rs if rate(r) is not None] or rs
+        for name, group in by_product.items():
+            rs = [r for r in group if rate(r) is not None] or group
             top = max(rs, key=lambda r: rate(r) or 0)
             bottom = min(rs, key=lambda r: rate(r) or 0)
             hit = [r for r in rs if matches(r)]
@@ -113,7 +117,7 @@ class Catalog:
                  "highest_rate_tier": top["label"].split(" | ")[-1], "eff": top["eff"]}
             main = t.get("headline", {}).get(top["family"])
             if main and name.startswith(main):
-                s["headline"] = "main product of this category"
+                s["headline"] = MAIN_PRODUCT
             if filtered:
                 s["tiers_matching"] = len(hit)
                 s["result"] = ("%d of %d tiers meet the criterion; highest rate %s%% at %s"
@@ -133,14 +137,14 @@ class Catalog:
         for s, tier_rows in out:
             rows.append(s)
             for r in tier_rows:
-                rows.append({k: r[k] for k in ("url", "also", "rank", "family", "label", "eff", "rate", "apr", "apy") if r.get(k) not in (None, "")})
+                rows.append({k: r[k] for k in TIER_FIELDS if r.get(k) not in (None, "")})
         return rows[:40]
 
     @staticmethod
-    def _fuse(store, t, fts_rows, qvec, si):
+    def _fuse(store, fts_rows, qvec, si):
         """Merge keyword hits and vector hits by reciprocal rank (a passage found by both rises to the top).
         Vector hits come from any snapshot, so they are filtered to passages that exist in snapshot `si`."""
-        vec = getattr(store, "vec", None)
+        vec = store.vec
         if vec is None or qvec is None:
             return fts_rows
         hits = vec.top(qvec, 80)
@@ -179,7 +183,8 @@ class Catalog:
             for i, r in enumerate(rs, 1):
                 span = r["pub"] if r["first_pub"] == r["pub"] else "%s to %s" % (r["first_pub"], r["pub"])
                 lines.append("Schedule %d (%s; %s): %s" % (i, span, r["title"], "; ".join(json.loads(r["lines"]))))
-            urls = list(dict.fromkeys([r["url"] for r in rs] + [u for r in rs for u in (r.get("also") or "").split(",") if u]))   # one page per schedule first
+            also = [u for r in rs for u in (r.get("also") or "").split(",") if u]
+            urls = list(dict.fromkeys([r["url"] for r in rs] + also))          # one page per schedule first
             out.append({"url": rs[0]["url"], "title": "%d distinct %s schedules" % (len(rs), kind), "pub": rs[0]["pub"],
                         "rank": 4, "kind": kind, "lines": "\n".join(lines), "also": ",".join(urls)})
         return out

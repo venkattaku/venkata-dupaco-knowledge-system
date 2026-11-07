@@ -1,14 +1,14 @@
-"""SQLite store: every snapshot is ingested into relational tables (see docs/DATA_MODEL.md)."""
+"""SQLite store: every snapshot is ingested into relational tables (see the Data model section of NOTES.md)."""
 import json
 import sqlite3
 import threading
 
-from . import parse as P
+from . import parse
 from .vec import Vectors
 
 SCHEMA = """
 CREATE TABLE snaps  (idx INTEGER PRIMARY KEY, snap_id TEXT, taken_on TEXT);
-CREATE TABLE pages  (snap_idx INT, url TEXT, title TEXT, rank INT, pub TEXT, fetched_at TEXT);
+CREATE TABLE pages  (snap_idx INT, url TEXT, title TEXT, rank INT, pub TEXT);
 CREATE TABLE rates  (id INTEGER PRIMARY KEY, snap_idx INT, url TEXT, rank INT, family TEXT, segment TEXT,
                      label TEXT, ckey TEXT, head TEXT, ctx TEXT, eff TEXT, rate REAL, apr REAL, apy REAL,
                      minearn REAL, raw TEXT, hay TEXT, lo REAL, hi REAL, yr_lo INT, yr_hi INT);
@@ -49,49 +49,48 @@ class Store:
         for pg in snapshot.pages:
             md = pg.markdown or ""
             url = pg.url
-            rank = P.authority(url)
-            pub = P.page_pub_date(md)
-            db.execute("INSERT INTO pages VALUES (?,?,?,?,?,?)", (idx, url, pg.title, rank, pub, pg.fetched_at))
-            path = P.url_path(url)
+            rank = parse.authority(url)
+            pub = parse.page_pub_date(md)
+            db.execute("INSERT INTO pages VALUES (?,?,?,?,?)", (idx, url, pg.title, rank, pub))
+            path = parse.url_path(url)
 
-            for r in P.parse_rate_tables(url, md):
-                tb = P.tier_bounds(r["label"])
-                yr = P.model_years(r["label"])
-                hay = " " + " ".join(P.tokens(" ".join([r["label"], r["head"], r["ctx"], path.replace("/", " ")]))) + " "
+            for r in parse.parse_rate_tables(url, md):
+                tb = parse.tier_bounds(r["label"])
+                yr = parse.model_years(r["label"])
+                hay = " " + " ".join(parse.tokens(" ".join([r["label"], r["head"], r["ctx"], path.replace("/", " ")]))) + " "
                 db.execute(
                     "INSERT INTO rates(snap_idx,url,rank,family,segment,label,ckey,head,ctx,eff,rate,apr,apy,minearn,raw,"
                     "hay,lo,hi,yr_lo,yr_hi) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (idx, url, rank, r["family"], r["segment"], r["label"], P.ckey(r["family"] + "|" + r["label"]),
+                    (idx, url, rank, r["family"], r["segment"], r["label"], parse.ckey(r["family"] + "|" + r["label"]),
                      r["head"], r["ctx"], r["eff"], r["rate"], r["apr"], r["apy"], r["minearn"], r["raw"], hay,
                      tb[0] if tb else None, min(tb[1], 1e15) if tb else None,
                      yr[0] if yr else None, yr[1] if yr else None))
             if "credit-cards" in path:
-                for c in P.parse_card_rows(url, md):
+                for c in parse.parse_card_rows(md):
                     db.execute("INSERT INTO cards VALUES (?,?,?,?,?,?,?,?)",
                                (idx, url, rank, c["name"], c["lo"], c["hi"], c["intro"], c["intro_text"]))
-            for b in P.parse_hours_blocks(md):
+            for b in parse.parse_hours_blocks(md):
                 db.execute("INSERT INTO hours VALUES (?,?,?,?,?,?,?)",
                            (idx, url, pg.title, pub, b["kind"], json.dumps(b["lines"]), md[:4000]))
             if path == "/contact":
-                for e in P.parse_locator(md):
+                for e in parse.parse_locator(md):
                     db.execute("INSERT INTO locator VALUES (?,?,?,?,?,?,?,?,?)",
                                (idx, url, e["name"], e["kind"], e["street"], e["city"], e["state"], e["zip"],
                                 e["services"]))
-            n = P.parse_branch_count(md)
+            n = parse.parse_branch_count(md)
             if n:
                 db.execute("INSERT INTO counts VALUES (?,?,?,?)", (idx, url, pub, n))
-            for text, href in P.parse_links(md):
+            for text, href in parse.parse_links(md):
                 db.execute("INSERT INTO links VALUES (?,?,?,?)", (idx, url, text, href))
 
-            for head, text in P.chunk_page(md):
-                key = text
-                if key in seen_text and key in self._sent and self._sent[key][1] <= rank:
+            for head, text in parse.chunk_page(md):
+                if text in seen_text and text in self._sent and self._sent[text][1] <= rank:
                     continue
-                seen_text.add(key)
-                cur = self._sent.get(key)
+                seen_text.add(text)
+                cur = self._sent.get(text)
                 if cur is None:
                     new_sent.append((url, rank, pub, head, pg.title or "", text, idx, idx))
-                    self._sent[key] = [None, rank, pub, len(new_sent) - 1]
+                    self._sent[text] = [None, rank, pub, len(new_sent) - 1]
                 else:
                     if cur[0] is not None and (rank < cur[1] or (rank == cur[1] and pub > (cur[2] or ""))):
                         db.execute("UPDATE sent SET url=?, rank=?, pub=?, head=?, title=? WHERE id=?",
@@ -108,9 +107,9 @@ class Store:
                              (url, rank, pub, head, title, text, fi, li))
             sid = cur.lastrowid
             self._sent[text][0] = sid
-            slug = " ".join(P.tokens(P.url_path(url) + " " + title + " " + head))
+            slug = " ".join(parse.tokens(parse.url_path(url) + " " + title + " " + head))
             db.execute("INSERT INTO sent_fts(rowid, stext) VALUES (?,?)",
-                       (sid, " ".join(P.tokens(text)) + " " + slug))
+                       (sid, " ".join(parse.tokens(text)) + " " + slug))
             vids.append(sid)
             vtexts.append(((head + ". ") if head else "") + text[:1200])
         if self.vec is not None:

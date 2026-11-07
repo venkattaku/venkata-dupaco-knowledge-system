@@ -7,4 +7,3 @@ snapshots/0*/
 solution_log.csv
 .llm_cache.json
 .emb_cache.pkl
-docs/score_reports/

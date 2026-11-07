@@ -72,7 +72,6 @@ class Engine:
         calls = self._route(q)
         rows, sid, asof = self._query(q, calls, as_of, qvec)
         if not rows:
-            logger.step(q, 4, "Final answer", "no rows", "refusal")
             return Answer(text=REFUSAL, confident=False)
         for i, r in enumerate(rows):
             r["n"] = i                                         # the LLM cites rows by this number
@@ -172,7 +171,7 @@ class Engine:
                 if r.get("kind") == kind and str(r.get("url", "")).startswith("http") and r["url"] not in urls:
                     urls.append(r["url"])
         tier = {r["url"]: r.get("rank") or 9 for r in rows if r.get("url")}
-        urls.sort(key=lambda u: tier.get(u, 9))                 # official pages first (stable: keeps the LLM's order within a tier)
+        urls.sort(key=lambda u: tier.get(u, 9))                 # best tier first; stable, so the LLM's order holds within a tier
         return urls
 
     # ------------------------------------------------------------------ helpers
@@ -185,10 +184,14 @@ class Engine:
             return None
 
     def _llm_note(self):
-        L = self.llm.last
-        return "model=%s%s%s%s" % (L["model"], " (cached)" if L["cached"] else "",
-                                   " attempts=%d waited=%.1fs%s" % (L["attempts"], L["waited"], " HEDGED" if L.get("hedged") else "") if L.get("attempts") else "",
-                                   " ERRORS: " + " | ".join(L["errors"]) if L["errors"] else "")
+        """One-line description of the last LLM call for the log: model, cache hit, retries, errors."""
+        last = self.llm.last
+        note = "model=%s%s" % (last["model"], " (cached)" if last["cached"] else "")
+        if last.get("attempts"):
+            note += " attempts=%d waited=%.1fs%s" % (last["attempts"], last["waited"], " HEDGED" if last.get("hedged") else "")
+        if last["errors"]:
+            note += " ERRORS: " + " | ".join(last["errors"])
+        return note
 
     @staticmethod
     def _slim(r):

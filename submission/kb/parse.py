@@ -25,7 +25,7 @@ def tokens(text: str):
     text = (text or "").lower().replace("–", " ").replace("—", " ")
     text = re.sub(r"(?<=\d),(?=\d{3})", "", text)           # 1,000 -> 1000
     text = re.sub(r"[-/_]", " ", text)
-    return [stem(t) for t in re.findall(r"[a-z0-9$][a-z0-9$.%]*", text) if stem(t)]
+    return [s for t in re.findall(r"[a-z0-9$][a-z0-9$.%]*", text) if (s := stem(t))]
 
 
 # ------------------------------------------------------------------ authority
@@ -43,9 +43,7 @@ def authority(url: str) -> int:
         return 1
     if "/learn/" in p or "/blog" in p or p.endswith(".pdf") or "/hubfs/" in p:
         return 5
-    if "/calculators" in p:
-        return 4
-    if "/newsroom" in p:
+    if "/calculators" in p or "/newsroom" in p:
         return 4
     if PRODUCT_PAGE.match(p):
         return 1
@@ -153,7 +151,7 @@ def iter_tables(md: str):
         i += 1
 
 
-def family_of(url: str, head: str, ctx: str, header, label: str) -> str:
+def family_of(url: str, header, label: str) -> str:
     h = " ".join(header).lower()
     lab = label.lower()
     path = url_path(url)
@@ -204,12 +202,11 @@ def parse_rate_tables(url: str, md: str):
                     apy = p
                 elif "apr" in kl or "annual percentage rate" in kl:
                     apr = p
-                elif "dividend" in kl or kl.startswith("rate") or "rate" in kl:
+                elif "dividend" in kl or "rate" in kl:
                     rate = p
             if rate is None and apr is None and apy is None:
                 continue
-            # a bare "rate" in a table that only has an APR column (cards, loans) is the APR
-            fam = family_of(url, t["head"], t["ctx"], header, label)
+            fam = family_of(url, header, label)
             minearn = None
             for k, v in vals.items():
                 if "earn" in k.lower() or "min" in k.lower():
@@ -217,7 +214,7 @@ def parse_rate_tables(url: str, md: str):
             out.append({
                 "family": fam, "label": label, "head": t["head"], "ctx": t["ctx"], "eff": t["eff"],
                 "rate": rate, "apr": apr, "apy": apy, "minearn": minearn,
-                "vals": vals, "raw": "| " + " | ".join(cells) + " |",
+                "raw": "| " + " | ".join(cells) + " |",
                 "segment": "business" if "/business" in url_path(url) or "business" in label.lower() else "personal",
             })
     return out
@@ -268,9 +265,9 @@ ADDR = re.compile(r"^(\d+\s+[^,\n]+?),\s*([A-Za-z .'-]+?),\s*([A-Z]{2}),?\s*(\d{
 def parse_locator(md: str):
     """/contact locator entries: heading, kind, 'street, City, ST, ZIP', status, services."""
     out = []
-    lines = [l.strip() for l in md.split("\n")]
-    for i, l in enumerate(lines):
-        m = ADDR.match(l)
+    lines = [ln.strip() for ln in md.split("\n")]
+    for i, line in enumerate(lines):
+        m = ADDR.match(line)
         if not m:
             continue
         name, kind = "", ""
@@ -345,7 +342,7 @@ def parse_branch_count(md: str):
     return int(m.group(1)) if m else None
 
 
-def parse_card_rows(url: str, md: str):
+def parse_card_rows(md: str):
     """Personal card pages: '### Rewards Visa' sections with 'NN.NN%–NN.NN% APR' bullets."""
     out = []
     parts = re.split(r"\n(?=###\s)", md)

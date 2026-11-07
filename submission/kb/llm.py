@@ -3,6 +3,7 @@
 Key from the DEEPINFRA_API_KEY environment variable only. Follows DeepInfra's tool-calling guidance: tool_choice "auto",
 no system message (instructions go in the user message), temperature 0. Disk cache, call budget, retries with backoff."""
 import concurrent.futures as cf
+import contextlib
 import hashlib
 import json
 import os
@@ -17,7 +18,7 @@ PREFERRED = ["deepseek-ai/DeepSeek-V4-Flash-0731", "Qwen/Qwen3-235B-A22B-Instruc
              "meta-llama/Llama-3.3-70B-Instruct-Turbo"]
 
 
-def _ssl():
+def ssl_context():
     files = []
     try:
         import certifi
@@ -37,18 +38,23 @@ def _ssl():
 
 class LLM:
     def __init__(self, key, model=None, timeout=15.0):
-        self.key, self.timeout, self.ctx = key, timeout, _ssl()
+        self.key, self.timeout, self.ctx = key, timeout, ssl_context()
         self.model = model or os.environ.get("DEEPINFRA_MODEL", PREFERRED[0])
         self.budget = int(os.environ.get("LLM_MAX_CALLS", "600"))
         self.retries = int(os.environ.get("LLM_RETRIES", "5"))
         self.hedge = float(os.environ.get("LLM_HEDGE_S", "3.5"))      # send a duplicate request if no reply by then
         self.cache_path = os.environ.get("LLM_CACHE", ".llm_cache.json")
         try:
-            self.cache = json.load(open(self.cache_path, encoding="utf-8")) if os.path.exists(self.cache_path) else {}
-        except Exception:
+            with open(self.cache_path, encoding="utf-8") as f:
+                self.cache = json.load(f)
+        except Exception:                                  # no cache yet, or an unreadable one
             self.cache = {}
         self.fail_streak, self.dead = 0, False
-        self.last = {"cached": False, "ms": None, "model": self.model, "errors": [], "waited": 0.0, "attempts": 0}
+        self.last = self._blank_last()
+
+    def _blank_last(self):
+        """Details of the most recent call (read by the logger)."""
+        return {"cached": False, "ms": None, "model": self.model, "errors": [], "waited": 0.0, "attempts": 0}
 
     @classmethod
     def from_env(cls):
@@ -107,7 +113,7 @@ class LLM:
         answers in plain text instead, that text is returned as that function's `text` argument."""
         key = hashlib.sha1(json.dumps([self.model, instructions, user, [t["function"]["name"] for t in tools], force],
                                       sort_keys=True).encode()).hexdigest()
-        self.last = {"cached": False, "ms": None, "model": self.model, "errors": [], "waited": 0.0, "attempts": 0}
+        self.last = self._blank_last()
         if key in self.cache:
             self.last["cached"] = True
             return [tuple(c) for c in self.cache[key]]
@@ -130,10 +136,8 @@ class LLM:
                     self.last["errors"].append("model returned no tool call")
                     break
                 self.cache[key] = calls
-                try:
-                    json.dump(self.cache, open(self.cache_path, "w", encoding="utf-8"))
-                except Exception:
-                    pass
+                with contextlib.suppress(Exception), open(self.cache_path, "w", encoding="utf-8") as f:
+                    json.dump(self.cache, f)
                 self.fail_streak = 0
                 self.last.update(ms=int((time.time() - t_start) * 1000), model=self.model)
                 return calls

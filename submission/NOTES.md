@@ -39,9 +39,8 @@ python harness/run_eval.py --submission submission --eval eval/public_eval.jsonl
 | `kb/conflicts.py` | The `conflicts()` report |
 | `kb/logger.py` | Step log |
 
-**Scores:** `docs/SCORE_LOG.md` has every iteration. The latest run on the 40 public questions scored 0.969 accuracy.
-The one miss is dup-005, whose gold answer has nothing checkable (no `must_include`). `docs/ARCHITECTURE.md` and
-`docs/DATA_MODEL.md` are short versions of the sections below.
+**Scores:** the latest run on the 40 public questions scored 0.969 accuracy. The one miss is dup-005, whose gold answer
+has nothing checkable (no `must_include`).
 
 ---
 
@@ -144,7 +143,7 @@ flowchart LR
 ## Data model
 
 - **snaps** (`idx`, `snap_id`, `taken_on`): one row per snapshot. All other tables point to it through `snap_idx`.
-- **pages** (`snap_idx`, `url`, `title`, `rank`, `pub`, `fetched_at`): one row per page per snapshot. `rank` is the authority tier, and `url` links a page to its facts.
+- **pages** (`snap_idx`, `url`, `title`, `rank`, `pub`): one row per page per snapshot. `rank` is the authority tier, and `url` links a page to its facts.
 - **rates** (`snap_idx`, `url`, `family`, `segment`, `label`, `lo`, `hi`, `rate`, `apr`, `apy`, `eff`): one row per rate tier on a page. `lo` and `hi` are the balance or amount band, and `eff` is the effective date.
 - **cards** (`snap_idx`, `url`, `name`, `lo`, `hi`, `intro`, `intro_text`): one row per credit card, with its APR range and introductory rate.
 - **hours** (`snap_idx`, `url`, `kind`, `lines`, `pub`): one row per schedule found in a press release, where `kind` is lobby or drive-up.

@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 
 from . import logger
-from .llm import BASE, _ssl
+from .llm import BASE, ssl_context
 
 try:
     import numpy as np
@@ -20,6 +20,8 @@ except Exception:                                   # numpy missing: vectors off
     np = None
 
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "     # bge retrieval convention
+CANDIDATES = ["BAAI/bge-base-en-v1.5", "BAAI/bge-large-en-v1.5", "BAAI/bge-m3", "Qwen/Qwen3-Embedding-0.6B",
+              "sentence-transformers/all-MiniLM-L6-v2"]     # tried in order when EMBED_MODEL is unset or fails
 
 
 class Vectors:
@@ -31,7 +33,7 @@ class Vectors:
         self.workers = int(os.environ.get("EMBED_WORKERS", "8"))
         self.budget_s = float(os.environ.get("EMBED_BUDGET_S", "900"))       # ingest limit is 30 min; stay far under
         self.cache_path = os.environ.get("EMBED_CACHE", ".emb_cache.pkl")
-        self.ctx = _ssl()
+        self.ctx = ssl_context()
         self.fmt = True
         self.probed = False
         self.ok = True
@@ -65,7 +67,7 @@ class Vectors:
             with urllib.request.urlopen(req, timeout=30, context=self.ctx) as r:
                 d = json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
-            raise RuntimeError("HTTP %s %s" % (e.code, e.read()[:200].decode("utf-8", "ignore")))
+            raise RuntimeError("HTTP %s %s" % (e.code, e.read()[:200].decode("utf-8", "ignore"))) from e
         data = sorted(d["data"], key=lambda x: x.get("index", 0))
         if len(data) != len(inputs):
             raise ValueError("embedding count mismatch")
@@ -103,9 +105,6 @@ class Vectors:
         n = float(np.linalg.norm(v))
         return (v / n).astype(np.float32) if n else v.astype(np.float32)
 
-    CANDIDATES = ["BAAI/bge-base-en-v1.5", "BAAI/bge-large-en-v1.5", "BAAI/bge-m3", "Qwen/Qwen3-Embedding-0.6B",
-                  "sentence-transformers/all-MiniLM-L6-v2"]
-
     def _prefix_for(self, model):
         if os.environ.get("EMBED_QUERY_PREFIX") is not None:
             return os.environ["EMBED_QUERY_PREFIX"]
@@ -119,7 +118,7 @@ class Vectors:
         """Find a working (model, request format) once; every failure is logged with the API's error text."""
         self.probed = True
         first = os.environ.get("EMBED_MODEL")
-        models = ([first] if first else []) + [m for m in self.CANDIDATES if m != first]
+        models = ([first] if first else []) + [m for m in CANDIDATES if m != first]
         for m in models:
             for fmt in (True, False):
                 self.model, self.fmt = m, fmt
@@ -142,7 +141,6 @@ class Vectors:
             self.ok = False
             logger.log("embed_off", error="no embedding model worked")
             return
-        keys = [hashlib.sha1((self.model + "|" + t).encode("utf-8", "ignore")).hexdigest() for t in texts]
         texts = [(t.strip() or "-")[:800] for t in texts]
         keys = [hashlib.sha1((self.model + "|" + t).encode("utf-8", "ignore")).hexdigest() for t in texts]
         todo = [i for i, k in enumerate(keys) if k not in self.cache]

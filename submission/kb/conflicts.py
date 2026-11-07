@@ -9,12 +9,12 @@ from contract import Conflict, Source
 
 
 def find_conflicts(store):
-    s, out = store, []
-    if not s.snaps:
+    out = []
+    if not store.snaps:
         return out
-    si = len(s.snaps) - 1
+    si = len(store.snaps) - 1
     by = defaultdict(list)
-    for r in s.q("SELECT * FROM rates WHERE snap_idx=? AND family!='other'", (si,)):
+    for r in store.q("SELECT * FROM rates WHERE snap_idx=? AND family!='other'", (si,)):
         by[r["ckey"]].append(r)
 
     def show(r):
@@ -28,19 +28,19 @@ def find_conflicts(store):
             vals = list(dict.fromkeys(show(r) for r in rs))
             out.append(Conflict(
                 topic="%s (%s)" % (win["label"].replace(" | ", ", "), win["family"].replace("_", " ")),
-                values=vals, sources=[Source(url=r["url"], snapshot_id=s.snaps[si][0], quote=r["raw"][:240]) for r in rs[:6]],
+                values=vals, sources=[Source(url=r["url"], snapshot_id=store.snaps[si][0], quote=r["raw"][:240]) for r in rs[:6]],
                 resolution=show(win),
                 reason="The canonical product page%s supersedes copies on promo/calculator/other pages."
                        % (" (rates effective %s)" % win["eff"] if win["eff"] else "")))
-    cnts = s.q("SELECT value, url, pub FROM counts WHERE snap_idx=? ORDER BY pub DESC", (si,))
+    cnts = store.q("SELECT value, url, pub FROM counts WHERE snap_idx=? ORDER BY pub DESC", (si,))
     if len({c["value"] for c in cnts}) > 1:
         out.append(Conflict(topic="number of Dupaco branch office locations",
                             values=list(dict.fromkeys(str(c["value"]) for c in cnts)),
-                            sources=[Source(url=cnts[0]["url"], snapshot_id=s.snaps[si][0]),
-                                     Source(url=cnts[-1]["url"], snapshot_id=s.snaps[si][0])],
+                            sources=[Source(url=cnts[0]["url"], snapshot_id=store.snaps[si][0]),
+                                     Source(url=cnts[-1]["url"], snapshot_id=store.snaps[si][0])],
                             resolution=str(cnts[0]["value"]),
                             reason="Press-release boilerplate is stale on older posts; the most recently dated page wins."))
-    hrs = s.q("SELECT url, kind, lines FROM hours WHERE snap_idx=?", (si,))
+    hrs = store.q("SELECT url, kind, lines FROM hours WHERE snap_idx=?", (si,))
     for kind in ("lobby", "drive-up"):
         variants = {}
         for h in hrs:
@@ -49,6 +49,6 @@ def find_conflicts(store):
         if len(variants) > 1:
             out.append(Conflict(topic="%s hours differ by branch" % kind,
                                 values=["; ".join(json.loads(k)) for k in variants],
-                                sources=[Source(url=u, snapshot_id=s.snaps[si][0]) for u in variants.values()],
+                                sources=[Source(url=u, snapshot_id=store.snaps[si][0]) for u in variants.values()],
                                 resolution=None, reason="Hours are branch-specific; no single schedule applies to all branches."))
     return out
