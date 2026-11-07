@@ -39,8 +39,9 @@ python harness/run_eval.py --submission submission --eval eval/public_eval.jsonl
 | `kb/conflicts.py` | The `conflicts()` report |
 | `kb/logger.py` | Step log |
 
-**Scores:** the latest run on the 40 public questions scored 0.969 accuracy. The one miss is dup-005, whose gold answer
-has nothing checkable (no `must_include`).
+**Scores:** the latest clean run on the 40 public questions scored 0.969 accuracy (final 0.947 with the local consistency
+and speed pillars). **Failing question: dup-005** ("Get me the rate for the certificate of accounts"). Its gold has an
+empty `must_include` list and the scorer sets correctness to 0 whenever that list is empty, so no answer can score above 0.
 
 ---
 
