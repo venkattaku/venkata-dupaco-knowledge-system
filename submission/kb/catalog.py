@@ -68,11 +68,15 @@ class Catalog:
             # page outline: one row per section of the two best official pages, so facts that sit under a
             # neighbouring heading (e.g. "Local Service" next to "You're Eligible to Join") are visible too
             seen = {(r["url"], r["head"]) for r in rows}
-            for u in list(dict.fromkeys(r["url"] for r in rows[:4]))[:2]:
+            weight = {}                    # a page that matches several times beats one that ranks high once
+            for n, r in enumerate(rows):
+                if (r.get("rank") or 9) <= 3:
+                    weight[r["url"]] = weight.get(r["url"], 0.0) + 1.0 / (5 + n)
+            for u in sorted(weight, key=lambda u: -weight[u])[:2]:
                 for r in store.q(t["outline_sql"], {"u": u, "si": si}):
                     if (r["url"], r["head"]) not in seen:
                         rows.append(r)
-            return rows[:36]
+            return rows[:40]
         return store.q(sql, p)
 
     @staticmethod
