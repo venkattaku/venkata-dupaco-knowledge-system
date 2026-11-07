@@ -5,6 +5,9 @@ writes the answer from the returned rows and names the rows it used (those rows'
 
 ## Setup
 
+**The supplied website snapshots are not in this repository.** Put the kit's `snapshots_zip/` folder in the top folder of
+this repo (next to `harness/`); the harness unpacks it on the first run.
+
 **Requirements:** Python 3.9 or newer (tested on 3.11) with SQLite FTS5, and one package, `numpy`. Network access to
 `api.deepinfra.com` is needed for the LLM and embeddings.
 
